@@ -21,8 +21,10 @@ import '../../features/sync/data/google_drive_service.dart' as _i756;
 import '../../features/sync/domain/sync_engine.dart' as _i677;
 import '../../features/sync/presentation/sync_bloc.dart' as _i667;
 import '../database/database.dart' as _i660;
+import '../navigation/deep_link_handler.dart' as _i834;
 import '../network/api_client.dart' as _i557;
 import '../network/moonraker_client.dart' as _i500;
+import '../services/label_print_service.dart' as _i732;
 
 extension GetItInjectableX on _i174.GetIt {
   // initializes the registration of main-scope dependencies inside of GetIt
@@ -32,8 +34,10 @@ extension GetItInjectableX on _i174.GetIt {
   }) {
     final gh = _i526.GetItHelper(this, environment, environmentFilter);
     gh.lazySingleton<_i660.AppDatabase>(() => _i660.AppDatabase());
+    gh.lazySingleton<_i834.DeepLinkHandler>(() => _i834.DeepLinkHandler());
     gh.lazySingleton<_i557.ApiClient>(() => _i557.ApiClient());
     gh.lazySingleton<_i500.MoonrakerClient>(() => _i500.MoonrakerClient());
+    gh.lazySingleton<_i732.LabelPrintService>(() => _i732.LabelPrintService());
     gh.lazySingleton<_i761.GoogleAuthService>(() => _i761.GoogleAuthService());
     gh.factory<_i431.InventoryBloc>(
       () => _i431.InventoryBloc(gh<_i660.AppDatabase>()),

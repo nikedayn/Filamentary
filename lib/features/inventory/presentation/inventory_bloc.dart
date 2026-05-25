@@ -53,6 +53,26 @@ class AddMaterialEvent extends Equatable implements InventoryEvent {
   bool? get stringify => true;
 }
 
+// В inventory_bloc.dart переконайся, що є цей клас:
+class UpdateGroupMaterialsEvent extends InventoryEvent {
+  final List<String> materialIds;
+  final String manufacturer;
+  final String type;
+  final String color;
+  final String diameter;
+
+  const UpdateGroupMaterialsEvent({
+    required this.materialIds,
+    required this.manufacturer,
+    required this.type,
+    required this.color,
+    required this.diameter,
+  });
+  
+  @override
+  List<Object?> get props => [materialIds, manufacturer, type, color, diameter];
+}
+
 class SpendWeightEvent extends InventoryEvent {
   final String materialId;
   final double spentDelta;

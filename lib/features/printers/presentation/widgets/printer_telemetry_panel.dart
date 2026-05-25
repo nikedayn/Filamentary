@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:filamentary/core/database/database.dart' as db;
+import 'package:filamentary/features/printers/presentation/widgets/printer_scanner_screen.dart'; // КРИТИЧНИЙ ІМПОРТ ФІКСУ
 import '../printer_detail_bloc.dart';
 
 class PrinterTelemetryPanel extends StatelessWidget {
@@ -109,20 +110,33 @@ class PrinterTelemetryPanel extends StatelessWidget {
                         child: attachedMaterialId == null
                             ? Text('Порожній слот', style: TextStyle(color: Colors.grey.shade400, fontSize: 13, fontStyle: FontStyle.italic))
                             : Text(
-                                'Котушка заправлена', // Сюди ми в наступному кроці підтягнемо реальне ім'я з бази
+                                'Котушка заправлена', 
                                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                       ),
 
-                      // Дія: або заправити, або витягнути
+                      // Дія: або заправити через камеру, або витягнути
                       if (attachedMaterialId == null)
                         IconButton(
                           icon: const Icon(Icons.qr_code_scanner, color: Colors.blueGrey, size: 20),
-                          tooltip: 'Заправити котушку',
-                          onPressed: () {
-                            _showRefillDialog(context, slotIndex);
+                          tooltip: 'Заправити котушку через камеру',
+                          onPressed: () async {
+                            // КРОК 1. Викликаємо наш відремонтований сканер
+                            final String? scannedSpoolId = await Navigator.push<String>(
+                              context,
+                              MaterialPageRoute(builder: (context) => const PrinterScannerScreen()),
+                            );
+
+                            // КРОК 2. Приймаємо UUID і відправляємо івент у BLoC
+                            if (scannedSpoolId != null && context.mounted) {
+                              context.read<PrinterDetailBloc>().add(ChangeSlotMaterialEvent(
+                                printerId: printer.id,
+                                slotIndex: slotIndex,
+                                materialId: scannedSpoolId, // Заправляємо зчитаний UUID
+                              ));
+                            }
                           },
                         )
                       else
@@ -142,37 +156,6 @@ class PrinterTelemetryPanel extends StatelessWidget {
                 );
               },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Тимчасове вікно введення ID для десктопа (поки не підключимо камеру)
-  void _showRefillDialog(BuildContext context, int slotIndex) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (diagContext) => AlertDialog(
-        title: Text('Заправка слоту №$slotIndex'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Скануйте QR або введіть ID котушки', border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(diagContext), child: const Text('Скасувати')),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                context.read<PrinterDetailBloc>().add(ChangeSlotMaterialEvent(
-                      printerId: printer.id,
-                      slotIndex: slotIndex,
-                      materialId: controller.text.trim(),
-                    ));
-                Navigator.pop(diagContext);
-              }
-            },
-            child: const Text('Заправити'),
           ),
         ],
       ),

@@ -1,7 +1,9 @@
+import 'package:filamentary/core/di/injection.dart';
 import 'package:flutter/material.dart';
 import 'package:filamentary/core/database/database.dart' as db;
 import 'package:filamentary/main.dart'; // Імпортуємо наш ключ
 import '../inventory_bloc.dart';
+import 'package:filamentary/core/services/label_print_service.dart';
 
 class GroupDetailsDialog extends StatelessWidget {
   final List<db.Material> items;
@@ -78,6 +80,18 @@ class GroupDetailsDialog extends StatelessWidget {
                             onPressed: () {
                               Navigator.pop(context); 
                               _showSpendWeightDialog(context, material, bloc);
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.print, color: Colors.indigo),
+                            tooltip: 'Надрукувати етикетку',
+                            onPressed: () {
+                              getIt<LabelPrintService>().printSpoolLabel(
+                                material.id,
+                                material.manufacturer, // Dart підсвітить помилку, якщо ми не обробили null
+                                material.type,
+                                material.color,
+                              );
                             },
                           ),
                           IconButton(
