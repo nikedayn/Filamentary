@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:filamentary/core/database/database.dart' as db;
+import 'package:filamentary/features/inventory/domain/models/filament_material.dart'; // Чиста модель
 import 'package:filamentary/features/inventory/presentation/inventory_bloc.dart';
 
 class EditGroupSheet extends StatefulWidget {
-  final List<db.Material> groupMaterials;
+  final List<FilamentMaterial> groupMaterials;
 
   const EditGroupSheet({
     super.key,
@@ -18,13 +18,11 @@ class EditGroupSheet extends StatefulWidget {
 class _EditGroupSheetState extends State<EditGroupSheet> {
   final _formKey = GlobalKey<FormState>();
   
-  // Використовуємо контролери для полів, які ми редагуємо
   late final TextEditingController _manufacturerController;
   late final TextEditingController _colorController;
   
   String _selectedType = 'PLA';
   String _diameter = '1.75mm';
-  String _imageUrl = '';
 
   @override
   void initState() {
@@ -35,7 +33,6 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
     _colorController = TextEditingController(text: baseMaterial.color);
     _selectedType = baseMaterial.type;
     _diameter = baseMaterial.diameter;
-    _imageUrl = baseMaterial.imageUrl ?? '';
   }
 
   @override
@@ -61,7 +58,10 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Редагування групи матеріалів', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Редагування групи матеріалів', 
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 16),
               
               TextFormField(
@@ -74,7 +74,9 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
               DropdownButtonFormField<String>(
                 initialValue: _selectedType,
                 decoration: const InputDecoration(labelText: 'Тип матеріалу', border: OutlineInputBorder()),
-                items: ['PLA', 'PETG', 'TPU'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                items: ['PLA', 'PETG', 'TPU', 'ABS']
+                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
                 onChanged: (v) => setState(() => _selectedType = v!),
               ),
               const SizedBox(height: 12),
@@ -95,7 +97,9 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
                     child: DropdownButtonFormField<String>(
                       initialValue: _diameter,
                       decoration: const InputDecoration(labelText: 'Діаметр', border: OutlineInputBorder()),
-                      items: ['1.75mm', '2.85mm'].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                      items: ['1.75mm', '2.85mm']
+                          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                          .toList(),
                       onChanged: (v) => setState(() => _diameter = v!),
                     ),
                   ),
@@ -110,17 +114,19 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
                   foregroundColor: Colors.white,
                 ),
                 onPressed: () {
-                  // Тільки через .add()
-                  context.read<InventoryBloc>().add(
-                    UpdateGroupMaterialsEvent(
-                      materialIds: widget.groupMaterials.map((e) => e.id).toList(),
-                      manufacturer: _manufacturerController.text,
-                      type: _selectedType,
-                      color: _colorController.text,
-                      diameter: _diameter,
-                    ),
-                  );
-                  Navigator.pop(context);
+                  if (_formKey.currentState?.validate() ?? false) {
+                    // ЗАЛІЗОБЕТОННИЙ ФІКС: додаємо об'єкт події через метод .add(...)
+                    context.read<InventoryBloc>().add(
+                      UpdateGroupMaterialsEvent(
+                        materialIds: widget.groupMaterials.map((e) => e.id).toList(),
+                        manufacturer: _manufacturerController.text.trim(),
+                        type: _selectedType,
+                        color: _colorController.text.trim(),
+                        diameter: _diameter,
+                      ),
+                    );
+                    Navigator.pop(context);
+                  }
                 },
                 child: const Text('Застосувати до групи', style: TextStyle(fontSize: 16)),
               ),

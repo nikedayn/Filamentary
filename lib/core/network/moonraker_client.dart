@@ -1,15 +1,17 @@
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
+import 'printer_client_interface.dart';
 
 @lazySingleton
-class MoonrakerClient {
+class MoonrakerClient implements PrinterClient {
+  // Кожен клієнт має власні залізобетонні таймаути для запобігання фризів UI
   final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 3), // Якщо принтер вимкнено, ми дізнаємося про це за 3 сек
+    connectTimeout: const Duration(seconds: 3),
     receiveTimeout: const Duration(seconds: 3),
   ));
 
-  /// Отримання статусів та температур хотенду і столу з Klipper
-  Future<Map<String, dynamic>> getPrinterStatus(String ip, int port, String? apiKey) async {
+  @override
+  Future<PrinterTelemetry> getStatus(String ip, int port, String? apiKey) async {
     final String url = 'http://$ip:$port/printer/objects/query';
     
     final Map<String, String> headers = {};
@@ -32,33 +34,42 @@ class MoonrakerClient {
 
       if (response.statusCode == 200) {
         final data = response.data['result']['status'];
-        return {
-          'isOnline': true,
-          'state': data['print_stats']['state'] ?? 'standby', // printing, paused, standby, error
-          'filename': data['print_stats']['filename'] ?? '',
-          'extruderTemp': data['extruder']['temperature'] ?? 0.0,
-          'extruderTarget': data['extruder']['target'] ?? 0.0,
-          'bedTemp': data['heater_bed']['temperature'] ?? 0.0,
-          'bedTarget': data['heater_bed']['target'] ?? 0.0,
-          'progress': data['print_stats']['print_duration'] > 0 
-              ? (data['print_stats']['print_duration'] / data['print_stats']['total_duration']) * 100 
+        final String rawState = data['print_stats']['state'] ?? 'standby';
+
+        return PrinterTelemetry(
+          isOnline: true,
+          state: _parseState(rawState),
+          filename: data['print_stats']['filename'] ?? '',
+          extruderTemp: (data['extruder']['temperature'] as num?)?.toDouble() ?? 0.0,
+          extruderTarget: (data['extruder']['target'] as num?)?.toDouble() ?? 0.0,
+          bedTemp: (data['heater_bed']['temperature'] as num?)?.toDouble() ?? 0.0,
+          bedTarget: (data['heater_bed']['target'] as num?)?.toDouble() ?? 0.0,
+          progress: data['print_stats']['print_duration'] > 0 
+              ? ((data['print_stats']['print_duration'] / data['print_stats']['total_duration']) * 100)
               : 0.0,
-        };
+        );
       }
     } catch (e) {
-      // Якщо принтер вимкнений з розетки або немає мережі
-      return {
-        'isOnline': false,
-        'state': 'offline',
-        'filename': '',
-        'extruderTemp': 0.0,
-        'extruderTarget': 0.0,
-        'bedTemp': 0.0,
-        'bedTarget': 0.0,
-        'progress': 0.0,
-      };
+      // Якщо принтер вимкнений з мережі — миттєво віддаємо offline-об'єкт
+      return PrinterTelemetry.offline();
     }
     
-    return {'isOnline': false, 'state': 'offline'};
+    return PrinterTelemetry.offline();
+  }
+
+  PrinterState _parseState(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'printing':
+        return PrinterState.printing;
+      case 'paused':
+        return PrinterState.paused;
+      case 'error':
+        return PrinterState.error;
+      case 'standby':
+      case 'ready':
+        return PrinterState.standby;
+      default:
+        return PrinterState.standby;
+    }
   }
 }

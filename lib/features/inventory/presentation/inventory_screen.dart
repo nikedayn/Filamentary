@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:filamentary/core/di/injection.dart';
-import 'package:filamentary/core/database/database.dart' as db;
+import 'package:filamentary/features/inventory/domain/models/filament_material.dart'; // Наша чиста бізнес-модель
 import 'inventory_bloc.dart';
-import 'widgets/material_card.dart';
+import 'widgets/material_card.dart'; // Імпортуємо наш оновлений MaterialGridCard
 import 'widgets/add_material_sheet.dart';
 import 'widgets/group_details_dialog.dart';
 import 'package:filamentary/core/navigation/main_navigation_drawer.dart';
@@ -19,15 +19,22 @@ class InventoryScreen extends StatelessWidget {
         builder: (innerContext) {
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Інвентар матеріалів', style: TextStyle(fontWeight: FontWeight.bold)),
+              title: const Text(
+                'Інвентар матеріалів',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               backgroundColor: Colors.blueGrey.shade100,
               elevation: 2,
             ),
-            drawer: const MainNavigationDrawer(currentRoute: 'inventory'), // <--- ДОДАЙТЕ ЦЕЙ РЯДОК
+            drawer: const MainNavigationDrawer(currentRoute: 'inventory'),
             body: BlocBuilder<InventoryBloc, InventoryState>(
               builder: (context, state) {
                 if (state is InventoryLoading) {
                   return const Center(child: CircularProgressIndicator());
+                }
+
+                if (state is InventoryFailure) {
+                  return Center(child: Text('Помилка: ${state.error}'));
                 }
 
                 if (state is InventoryLoaded) {
@@ -38,18 +45,30 @@ class InventoryScreen extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.layers_clear_outlined, size: 64, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.layers_clear_outlined,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
                           const SizedBox(height: 16),
-                          Text('Матеріалів не знайдено', style: TextStyle(fontSize: 18, color: Colors.grey.shade600)),
+                          Text(
+                            'Матеріалів не знайдено',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                       ),
                     );
                   }
 
-                  // Групування за нативними параметрами
-                  final Map<String, List<db.Material>> groupedMaterials = {};
+                  // Групування котушок за характеристиками для Clean Architecture
+                  final Map<String, List<FilamentMaterial>> groupedMaterials =
+                      {};
                   for (var mat in materials) {
-                    final String groupKey = '${mat.manufacturer}_${mat.type}_${mat.color}_${mat.diameter}';
+                    final String groupKey =
+                        '${mat.manufacturer}_${mat.type}_${mat.color}_${mat.diameter}';
                     if (!groupedMaterials.containsKey(groupKey)) {
                       groupedMaterials[groupKey] = [];
                     }
@@ -58,20 +77,26 @@ class InventoryScreen extends StatelessWidget {
 
                   final groupKeys = groupedMaterials.keys.toList();
 
-                  // ПУНКТ №2: Перехід на професійну адаптивну сітку GridView
+                  // Професійна адаптивна сітка GridView
                   return GridView.builder(
                     padding: const EdgeInsets.all(16),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 280, // Максимальна ширина однієї картки матеріалу
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
-                      childAspectRatio: 0.82, // Співвідношення сторін картки (висота трохи більша за ширину)
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount:
+                          5, // КЛЮЧОВИЙ ФІКС: Збільшуємо кількість колонок, щоб картки стали меншими
+                      crossAxisSpacing:
+                          12, // Зменшили крос-відступи для компактності
+                      mainAxisSpacing: 12,
+                      // Оскільки ми пропорційно стиснули тексти та падінги всередині картки,
+                      // коефіцієнт childAspectRatio можна утримувати в районі 0.75 - 0.78,
+                      // і картка буде ідеально пропорційною без переповнень!
+                      childAspectRatio: 0.76,
                     ),
                     itemCount: groupKeys.length,
                     itemBuilder: (context, index) {
                       final key = groupKeys[index];
                       final itemsInGroup = groupedMaterials[key]!;
 
+                      // Повертаємо твою нативну картку MaterialGridCard без зайвих обгорток
                       return MaterialGridCard(
                         items: itemsInGroup,
                         onTap: () {
@@ -79,12 +104,16 @@ class InventoryScreen extends StatelessWidget {
                             context: context,
                             builder: (ctx) => GroupDetailsDialog(
                               items: itemsInGroup,
-                              bloc: innerContext.read<InventoryBloc>(), // <--- ПЕРЕДАЄМО ЖИВИЙ БЛОК З ЕКРАНУ СЮДИ
+                              bloc: innerContext.read<InventoryBloc>(),
                               onSpendWeight: (id, value) {
-                                innerContext.read<InventoryBloc>().add(SpendWeightEvent(id, value));
+                                innerContext.read<InventoryBloc>().add(
+                                  DeleteMaterialEvent(id),
+                                );
                               },
                               onDeleteMaterial: (id) {
-                                innerContext.read<InventoryBloc>().add(DeleteMaterialEvent(id));
+                                innerContext.read<InventoryBloc>().add(
+                                  DeleteMaterialEvent(id),
+                                );
                               },
                             ),
                           );
@@ -99,10 +128,12 @@ class InventoryScreen extends StatelessWidget {
             floatingActionButton: FloatingActionButton.extended(
               icon: const Icon(Icons.add),
               label: const Text('Додати матеріал'),
+              backgroundColor: Colors.blueGrey.shade700,
+              foregroundColor: Colors.white,
               onPressed: () => _showAddBottomSheet(innerContext),
             ),
           );
-        }
+        },
       ),
     );
   }
@@ -111,8 +142,11 @@ class InventoryScreen extends StatelessWidget {
     showModalBottomSheet(
       context: blocContext,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => AddMaterialSheet(blocContext: blocContext),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) =>
+          AddMaterialSheet(inventoryBloc: blocContext.read<InventoryBloc>()),
     );
   }
 }

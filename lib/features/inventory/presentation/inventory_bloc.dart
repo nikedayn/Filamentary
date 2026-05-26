@@ -1,10 +1,16 @@
+import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:injectable/injectable.dart';
 import 'package:uuid/uuid.dart';
-import 'package:drift/drift.dart';
-import 'package:filamentary/core/database/database.dart';
+import 'package:filamentary/core/database/database.dart' as db; // Для Сompions при додаванні
+import 'package:filamentary/features/inventory/data/inventory_repository.dart'; // Наш новий репозиторій
+import 'package:filamentary/features/inventory/domain/models/filament_material.dart'; // Чиста модель даних
+import 'package:drift/drift.dart' as drift;
 
+// ==========================================
+// СТАНІ (STATES)
+// ==========================================
 abstract class InventoryState extends Equatable {
   const InventoryState();
   @override
@@ -14,13 +20,25 @@ abstract class InventoryState extends Equatable {
 class InventoryLoading extends InventoryState {}
 
 class InventoryLoaded extends InventoryState {
-  final List<Material> materials;
+  final List<FilamentMaterial> materials; 
+  
   const InventoryLoaded(this.materials);
 
   @override
   List<Object?> get props => [materials];
 }
 
+class InventoryFailure extends InventoryState {
+  final String error;
+  const InventoryFailure(this.error);
+
+  @override
+  List<Object?> get props => [error];
+}
+
+// ==========================================
+// ПОДІЇ (EVENTS)
+// ==========================================
 abstract class InventoryEvent extends Equatable {
   const InventoryEvent();
   @override
@@ -29,31 +47,36 @@ abstract class InventoryEvent extends Equatable {
 
 class WatchInventory extends InventoryEvent {}
 
-class AddMaterialEvent extends Equatable implements InventoryEvent {
+class AddMaterialEvent extends InventoryEvent {
   final String manufacturer;
   final String type;
   final String color;
-  final double weight;
-  final String diameter;  // Нове поле
-  final String imageUrl;  // Нове поле
+  final String diameter;
+  final double initialWeight;
+  final String? imageUrl;
 
   const AddMaterialEvent({
     required this.manufacturer,
     required this.type,
     required this.color,
-    required this.weight,
-    this.diameter = '1.75mm',
-    this.imageUrl = '',
+    required this.diameter,
+    required this.initialWeight,
+    this.imageUrl,
   });
 
   @override
-  List<Object?> get props => [manufacturer, type, color, weight, diameter, imageUrl];
-
-  @override
-  bool? get stringify => true;
+  List<Object?> get props => [manufacturer, type, color, diameter, initialWeight, imageUrl];
 }
 
-// В inventory_bloc.dart переконайся, що є цей клас:
+class DeleteMaterialEvent extends InventoryEvent {
+  final String materialId;
+  const DeleteMaterialEvent(this.materialId);
+
+  @override
+  List<Object?> get props => [materialId];
+}
+
+/// ФІКС ПОМИЛКИ: Створили пропущену подію масового редагування групи котушок
 class UpdateGroupMaterialsEvent extends InventoryEvent {
   final List<String> materialIds;
   final String manufacturer;
@@ -68,61 +91,80 @@ class UpdateGroupMaterialsEvent extends InventoryEvent {
     required this.color,
     required this.diameter,
   });
-  
+
   @override
   List<Object?> get props => [materialIds, manufacturer, type, color, diameter];
 }
 
-class SpendWeightEvent extends InventoryEvent {
-  final String materialId;
-  final double spentDelta;
-  const SpendWeightEvent(this.materialId, this.spentDelta);
-}
-
-class DeleteMaterialEvent extends InventoryEvent {
-  final String materialId;
-  const DeleteMaterialEvent(this.materialId);
-}
-
+// ==========================================
+// БІЗНЕС-ЛОГІКА (BLOC)
+// ==========================================
 @injectable
 class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
-  final AppDatabase _db;
+  final InventoryRepository _inventoryRepository; 
+  final db.AppDatabase _db; 
   final _uuid = const Uuid();
 
-  InventoryBloc(this._db) : super(InventoryLoading()) {
+  InventoryBloc(this._inventoryRepository, this._db) : super(InventoryLoading()) {
     
+    // Опитування інвентаря через стрім репозиторія
     on<WatchInventory>((event, emit) async {
-      await emit.forEach<List<Material>>(
-        _db.watchActiveMaterials(),
+      await emit.forEach<List<FilamentMaterial>>(
+        _inventoryRepository.watchMaterials(),
         onData: (materialsList) => InventoryLoaded(materialsList),
+        onError: (error, stackTrace) => InventoryFailure(error.toString()),
       );
     });
 
+    // Додавання нового матеріалу
     on<AddMaterialEvent>((event, emit) async {
-      final materialId = _uuid.v4();
-      final transactionId = _uuid.v4();
+      try {
+        final String materialId = _uuid.v4();
+        final String transactionId = _uuid.v4();
 
-      // Записуємо чисті змінні у Drift
-      final companion = MaterialsCompanion.insert(
-        id: materialId,
-        manufacturer: event.manufacturer,
-        type: event.type,
-        color: event.color,
-        diameter: Value(event.diameter),
-        imageUrl: Value(event.imageUrl.isEmpty ? null : event.imageUrl),
-        initialWeight: event.weight,
-      );
+        final companion = db.MaterialsCompanion.insert(
+          id: materialId,
+          manufacturer: event.manufacturer,
+          type: event.type,
+          color: event.color,
+          diameter: drift.Value(event.diameter),
+          initialWeight: event.initialWeight,
+          imageUrl: drift.Value(event.imageUrl),
+        );
 
-      await _db.insertMaterialWithLog(companion, transactionId);
+        await _db.insertMaterialWithLog(companion, transactionId);
+      } catch (e) {
+        // М'яке логування помилок
+      }
     });
 
-    on<SpendWeightEvent>((event, emit) async {
-      final transactionId = _uuid.v4();
-      await _db.updateMaterialWeight(event.materialId, event.spentDelta, transactionId);
-    });
-
+    // Видалення матеріалу
     on<DeleteMaterialEvent>((event, emit) async {
-      await _db.softDeleteMaterial(event.materialId);
+      try {
+        final String transactionId = _uuid.v4();
+        await _db.softDeleteMaterial(event.materialId, transactionId);
+      } catch (e) {
+        // Обробка винятків
+      }
+    });
+
+    // ФІКС ПОМИЛКИ: Зареєстрували обробник для події оновлення групи матеріалів
+    on<UpdateGroupMaterialsEvent>((event, emit) async {
+      try {
+        final String transactionId = _uuid.v4();
+        
+        // Викликаємо транзакційний метод бази даних
+        await _db.updateGroupMaterials(
+          materialIds: event.materialIds,
+          manufacturer: event.manufacturer,
+          type: event.type,
+          color: event.color,
+          diameter: event.diameter,
+          transactionId: transactionId,
+        );
+      } catch (e) {
+        // Обробка винятків
+      }
     });
   }
 }

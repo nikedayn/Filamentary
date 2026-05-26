@@ -1,12 +1,12 @@
 import 'package:filamentary/core/di/injection.dart';
 import 'package:flutter/material.dart';
-import 'package:filamentary/core/database/database.dart' as db;
-import 'package:filamentary/main.dart'; // Імпортуємо наш ключ
+import 'package:filamentary/features/inventory/domain/models/filament_material.dart'; // Чиста бізнес-модель даних
+import 'package:filamentary/main.dart'; // Глобальний ключ rootScaffoldMessengerKey
 import '../inventory_bloc.dart';
 import 'package:filamentary/core/services/label_print_service.dart';
 
 class GroupDetailsDialog extends StatelessWidget {
-  final List<db.Material> items;
+  final List<FilamentMaterial> items; 
   final Function(String id, double value) onSpendWeight;
   final Function(String id) onDeleteMaterial;
   final InventoryBloc bloc;
@@ -53,6 +53,7 @@ class GroupDetailsDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Divider(),
+            // ЗАЛІЗОБЕТОННИЙ ФІКС: Повернули ConstrainedBox на місце
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 300),
               child: ListView.builder(
@@ -60,7 +61,6 @@ class GroupDetailsDialog extends StatelessWidget {
                 itemCount: items.length,
                 itemBuilder: (context, idx) {
                   final material = items[idx];
-                  final double singleRemaining = material.initialWeight - material.usedWeight;
 
                   return Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
@@ -70,7 +70,7 @@ class GroupDetailsDialog extends StatelessWidget {
                     ),
                     child: ListTile(
                       title: Text('Котушка №${idx + 1}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text('Залишок: ${singleRemaining.toStringAsFixed(1)} г / ${material.initialWeight.toStringAsFixed(0)} г'),
+                      subtitle: Text('Залишок: ${material.currentWeight.toStringAsFixed(1)} г / ${material.initialWeight.toStringAsFixed(0)} г'),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -88,7 +88,7 @@ class GroupDetailsDialog extends StatelessWidget {
                             onPressed: () {
                               getIt<LabelPrintService>().printSpoolLabel(
                                 material.id,
-                                material.manufacturer, // Dart підсвітить помилку, якщо ми не обробили null
+                                material.manufacturer,
                                 material.type,
                                 material.color,
                               );
@@ -115,7 +115,7 @@ class GroupDetailsDialog extends StatelessWidget {
     );
   }
 
-  void _showAddUnitDialog(BuildContext context, db.Material patternMaterial, InventoryBloc bloc) {
+  void _showAddUnitDialog(BuildContext context, FilamentMaterial patternMaterial, InventoryBloc bloc) {
     final TextEditingController weightController = TextEditingController(text: '1000');
     final formKey = GlobalKey<FormState>();
 
@@ -155,22 +155,21 @@ class GroupDetailsDialog extends StatelessWidget {
               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               onPressed: () {
                 if (formKey.currentState!.validate()) {
-                  final double initialWeight = double.parse(weightController.text);
+                  final double initialWeightValue = double.parse(weightController.text);
                   
                   bloc.add(AddMaterialEvent(
                     manufacturer: patternMaterial.manufacturer,
                     type: patternMaterial.type,
                     color: patternMaterial.color,
                     diameter: patternMaterial.diameter,
-                    imageUrl: patternMaterial.imageUrl ?? '',
-                    weight: initialWeight,
+                    imageUrl: patternMaterial.imageUrl,
+                    initialWeight: initialWeightValue,
                   ));
 
                   Navigator.pop(ctx);
                   
-                  // АРХІТЕКТУРНО ЧИСТИЙ ВИКЛИК: Через Global Key, абсолютно незалежно від контексту!
                   rootScaffoldMessengerKey.currentState?.showSnackBar(
-                    SnackBar(content: Text('Нову котушку на $initialWeight г успішно додано')),
+                    SnackBar(content: Text('Нову котушку на $initialWeightValue г успішно додано')),
                   );
                 }
               },
@@ -182,7 +181,7 @@ class GroupDetailsDialog extends StatelessWidget {
     );
   }
 
-  void _showSpendWeightDialog(BuildContext context, db.Material material, InventoryBloc bloc) {
+  void _showSpendWeightDialog(BuildContext context, FilamentMaterial material, InventoryBloc bloc) {
     final TextEditingController weightController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -210,8 +209,7 @@ class GroupDetailsDialog extends StatelessWidget {
                     if (v == null || v.isEmpty) return 'Введіть значення';
                     if (!RegExp(r'^[0-9]*\.?[0-9]+$').hasMatch(v)) return 'Лише числа через крапку';
                     final double val = double.parse(v);
-                    final double remaining = material.initialWeight - material.usedWeight;
-                    if (val > remaining) return 'Не можна списати більше, ніж є';
+                    if (val > material.currentWeight) return 'Не можна списати більше, ніж є';
                     return null;
                   },
                 ),
@@ -228,7 +226,6 @@ class GroupDetailsDialog extends StatelessWidget {
                   onSpendWeight(material.id, spendValue);
                   Navigator.pop(ctx);
                   
-                  // Виклик через Global Key
                   rootScaffoldMessengerKey.currentState?.showSnackBar(
                     SnackBar(content: Text('Успішно списано $spendValue г матеріалу')),
                   );

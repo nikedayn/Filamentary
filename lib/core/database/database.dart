@@ -14,7 +14,6 @@ part 'database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
-  // ПУНКТ 1: Піднімаємо версію до 4
   @override
   int get schemaVersion => 4; 
 
@@ -35,17 +34,29 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(printJobs, printJobs.spentWeight);
             await m.addColumn(printJobs, printJobs.usedMaterialsLogJson);
           }
-          // МІГРАЦІЯ НА ВЕРСІЮ 4: Безпечно додаємо поле фото, не чіпаючи існуючі принтери
           if (from < 4) {
             await m.addColumn(printers, printers.imageUrl);
           }
         },
       );
 
+  // ==========================================
+  // РЕЖИМ ЧИТАННЯ (STREAMS)
+  // ==========================================
+
   Stream<List<Material>> watchActiveMaterials() {
     return (select(materials)..where((tbl) => tbl.isDeleted.equals(false))).watch();
   }
 
+  Stream<List<Printer>> watchActivePrinters() {
+    return (select(printers)..where((tbl) => tbl.isDeleted.equals(false))).watch();
+  }
+
+  // ==========================================
+  // ОПЕРАЦІЇ З МАТЕРІАЛАМИ (LOCAL-FIRST)
+  // ==========================================
+
+  /// Створення нового матеріалу з первинним логом
   Future<void> insertMaterialWithLog(MaterialsCompanion material, String transactionId) async {
     await transaction(() async {
       await into(materials).insert(material);
@@ -60,103 +71,235 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// МАСОВЕ ОНОВЛЕННЯ ГРУПИ МАТЕРІАЛІВ: Оновлює характеристики для кількох ID разом
+  Future<void> updateGroupMaterials({
+    required List<String> materialIds,
+    required String manufacturer,
+    required String type,
+    required String color,
+    required String diameter,
+    required String transactionId,
+  }) async {
+    await transaction(() async {
+      for (final id in materialIds) {
+        // 1. Отримуємо поточний стан котушки для збільшення її версії
+        final current = await (select(materials)..where((tbl) => tbl.id.equals(id))).getSingleOrNull();
+        if (current == null) continue;
+
+        // 2. Оновлюємо характеристики котушки, піднімаємо версію та фіксуємо час
+        await (update(materials)..where((tbl) => tbl.id.equals(id))).write(
+          MaterialsCompanion(
+            manufacturer: Value(manufacturer),
+            type: Value(type),
+            color: Value(color),
+            diameter: Value(diameter),
+            version: Value(current.version + 1), // Критично для хмари!
+            timestamp: Value(DateTime.now()),
+          ),
+        );
+      }
+
+      // 3. Записуємо одну загальну транзакцію про зміну групи у журнал
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: materialIds.join(','), // Зберігаємо список ID через кому
+          changeValue: const Value(null),
+          type: 'UpdateGroupMaterials',
+        ),
+      );
+    });
+  }
+
+  /// Оновлення ваги матеріалу (списання пластику під час друку)
   Future<void> updateMaterialWeight(String id, double usedDelta, String transactionId) async {
     await transaction(() async {
       final current = await (select(materials)..where((tbl) => tbl.id.equals(id))).getSingle();
       double newUsedWeight = current.usedWeight + usedDelta;
+      
       await (update(materials)..where((tbl) => tbl.id.equals(id))).write(
-        MaterialsCompanion(usedWeight: Value(newUsedWeight), version: Value(current.version + 1), timestamp: Value(DateTime.now())),
+        MaterialsCompanion(
+          usedWeight: Value(newUsedWeight), 
+          version: Value(current.version + 1), 
+          timestamp: Value(DateTime.now()),
+        ),
       );
+      
       await into(transactions).insert(
-        TransactionsCompanion.insert(id: transactionId, entityId: id, changeValue: Value(-usedDelta), type: 'WriteOff'),
+        TransactionsCompanion.insert(
+          id: transactionId, 
+          entityId: id, 
+          changeValue: Value(-usedDelta), 
+          type: 'WriteOff',
+        ),
       );
     });
   }
 
-  Future<void> softDeleteMaterial(String id) async {
-    await (update(materials)..where((tbl) => tbl.id.equals(id))).write(
-      MaterialsCompanion(isDeleted: const Value(true), timestamp: Value(DateTime.now())),
-    );
-  }
-
-  Stream<List<Printer>> watchActivePrinters() {
-    return (select(printers)..where((tbl) => tbl.isDeleted.equals(false))).watch();
-  }
-
-  Future<void> softDeletePrinter(String id) async {
-    await (update(printers)..where((tbl) => tbl.id.equals(id))).write(
-      PrintersCompanion(isDeleted: const Value(true), timestamp: Value(DateTime.now())),
-    );
-  }
-
-  Future<void> updatePrinterSlotsCount(String printerId, int newSlotsCount) async {
+  /// БЕЗПЕЧНЕ ВИДАЛЕННЯ МАТЕРІАЛУ: Фіксує транзакцію та інкрементує версію
+  Future<void> softDeleteMaterial(String id, String transactionId) async {
     await transaction(() async {
-      // 1. Отримуємо поточний принтер
+      final current = await (select(materials)..where((tbl) => tbl.id.equals(id))).getSingle();
+      
+      await (update(materials)..where((tbl) => tbl.id.equals(id))).write(
+        MaterialsCompanion(
+          isDeleted: const Value(true), 
+          version: Value(current.version + 1),
+          timestamp: Value(DateTime.now()),
+        ),
+      );
+
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: id,
+          changeValue: const Value(0.0), // Фіксовано: передаємо Value(0.0) замість null
+          type: 'DeleteMaterial',
+        ),
+      );
+    });
+  }
+
+  // ==========================================
+  // ОПЕРАЦІЇ З ПРИНТЕРАМИ (LOCAL-FIRST)
+  // ==========================================
+
+  /// БЕЗПЕЧНЕ ВИДАЛЕННЯ ПРИНТЕРА: Фіксує транзакцію та інкрементує версію
+  Future<void> softDeletePrinter(String id, String transactionId) async {
+    await transaction(() async {
+      final current = await (select(printers)..where((tbl) => tbl.id.equals(id))).getSingle();
+
+      await (update(printers)..where((tbl) => tbl.id.equals(id))).write(
+        PrintersCompanion(
+          isDeleted: const Value(true), 
+          version: Value(current.version + 1),
+          timestamp: Value(DateTime.now()),
+        ),
+      );
+
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: id,
+          changeValue: const Value(0.0), // Фіксовано: передаємо Value(0.0) замість null
+          type: 'DeletePrinter',
+        ),
+      );
+    });
+  }
+
+  /// Зміна кількості слотів принтера з логуванням версії
+  Future<void> updatePrinterSlotsCount(String printerId, int newSlotsCount, String transactionId) async {
+    await transaction(() async {
       final current = await (select(printers)..where((tbl) => tbl.id.equals(printerId))).getSingle();
       
-      // 2. Створюємо чистий JSON під нову кількість слотів
       final Map<String, dynamic> newSlots = {};
       for (int i = 1; i <= newSlotsCount; i++) {
-        newSlots['slot_$i'] = null; // Порожні слоти за замовчуванням
+        newSlots['slot_$i'] = null;
       }
 
-      // 3. Оновлюємо принтер у базі
       await (update(printers)..where((tbl) => tbl.id.equals(printerId))).write(
         PrintersCompanion(
           slotsCount: Value(newSlotsCount),
           activeSlotsJson: Value(jsonEncode(newSlots)),
+          version: Value(current.version + 1),
           timestamp: Value(DateTime.now()),
+        ),
+      );
+
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: printerId,
+          changeValue: Value(newSlotsCount.toDouble()), // Чітке приведення до double
+          type: 'UpdateSlotsCount',
         ),
       );
     });
   }
 
-  Future<void> connectMaterialToSlot(String printerId, int slotIndex, String? materialId) async {
+  /// Додавання нового принтера з логуванням первинної транзакції
+  Future<void> insertPrinterWithLog(PrintersCompanion companion, String transactionId) async {
     await transaction(() async {
-      // 1. Отримуємо поточний стан принтера
+      // 1. Вставляємо сам принтер у базу даних
+      await into(printers).insert(companion);
+
+      // 2. Фіксуємо транзакцію в журналі змін
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: companion.id.value, // Беремо ID створеного принтера
+          changeValue: const Value(null),
+          type: 'InsertPrinter',
+        ),
+      );
+    });
+  }
+
+  /// Прив'язка котушки матеріалу до конкретного слоту принтера з логуванням версії
+  Future<void> connectMaterialToSlot(String printerId, int slotIndex, String? materialId, String transactionId) async {
+    await transaction(() async {
       final current = await (select(printers)..where((tbl) => tbl.id.equals(printerId))).getSingle();
       
-      // 2. Декодуємо поточні слоти з JSON
       final Map<String, dynamic> slots = jsonDecode(current.activeSlotsJson);
-      
-      // 3. Оновлюємо потрібний слот (індексація для користувача з 1, тому slot_1, slot_2...)
       slots['slot_$slotIndex'] = materialId;
       
-      // 4. Записуємо оновлений JSON назад у базу
       await (update(printers)..where((tbl) => tbl.id.equals(printerId))).write(
         PrintersCompanion(
           activeSlotsJson: Value(jsonEncode(slots)),
+          version: Value(current.version + 1),
           timestamp: Value(DateTime.now()),
+        ),
+      );
+
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: printerId,
+          changeValue: const Value(null), // ФІКС ПОМИЛКИ: використовуємо const Value(null) замість чистого null
+          type: 'ConnectSlot',
         ),
       );
     });
   }
 
-  Future<void> updatePrinter(Printer printer) async {
-    await (update(printers)..where((tbl) => tbl.id.equals(printer.id))).write(
-      PrintersCompanion(
-        name: Value(printer.name),
-        ipAddress: Value(printer.ipAddress),
-        port: Value(printer.port),
-        slotsCount: Value(printer.slotsCount),
-        // Якщо ми змінюємо кількість слотів, треба також оновити JSON-структуру
-        activeSlotsJson: Value(printer.activeSlotsJson),
-        timestamp: Value(DateTime.now()),
-      ),
-    );
+  /// Повне редагування параметрів принтера користувачем з логуванням версії
+  Future<void> updatePrinter(Printer printer, String transactionId) async {
+    await transaction(() async {
+      final current = await (select(printers)..where((tbl) => tbl.id.equals(printer.id))).getSingle();
+
+      await (update(printers)..where((tbl) => tbl.id.equals(printer.id))).write(
+        PrintersCompanion(
+          name: Value(printer.name),
+          ipAddress: Value(printer.ipAddress),
+          port: Value(printer.port),
+          manufacturer: Value(printer.manufacturer),
+          model: Value(printer.model),
+          apiKey: Value(printer.apiKey),
+          slotsCount: Value(printer.slotsCount),
+          activeSlotsJson: Value(printer.activeSlotsJson),
+          imageUrl: Value(printer.imageUrl),
+          version: Value(current.version + 1),
+          timestamp: Value(DateTime.now()),
+        ),
+      );
+
+      await into(transactions).insert(
+        TransactionsCompanion.insert(
+          id: transactionId,
+          entityId: printer.id,
+          changeValue: const Value(null), // ФІКС ПОМИЛКИ: використовуємо const Value(null) замість чистого null
+          type: 'UpdatePrinterDetails',
+        ),
+      );
+    });
   }
 }
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // ЗАЛІЗОБЕТОННИЙ ФІКС: path_provider сам знайде легальну папку:
-    // на Android це буде /data/user/0/com.example.filamentary/app_flutter
-    // на Windows це буде папка в AppData/Roaming
     final dbFolder = await getApplicationDocumentsDirectory();
-    
-    // Створюємо чистий файл бази даних всередині дозволеної папки
     final file = File(p.join(dbFolder.path, 'filamentary_db.sqlite'));
-    
     return NativeDatabase.createInBackground(file);
   });
 }

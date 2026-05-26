@@ -1,23 +1,33 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../inventory_bloc.dart';
+import 'package:filamentary/features/inventory/presentation/inventory_bloc.dart';
 
 class AddMaterialSheet extends StatefulWidget {
-  final BuildContext blocContext;
-  const AddMaterialSheet({super.key, required this.blocContext});
+  final InventoryBloc inventoryBloc;
+
+  const AddMaterialSheet({super.key, required this.inventoryBloc});
 
   @override
   State<AddMaterialSheet> createState() => _AddMaterialSheetState();
 }
 
+// ФІКС НАЗВИ КЛАСУ СТАНУ (мав друкарську помилку _EditMaterialSheetState)
 class _AddMaterialSheetState extends State<AddMaterialSheet> {
   final _formKey = GlobalKey<FormState>();
-  String _manufacturer = '';
-  String _selectedType = 'PLA';
-  String _color = '';
-  String _diameter = '1.75mm';
-  double _weight = 1000.0;
-  String _imageUrl = '';
+  
+  final _manufacturerController = TextEditingController();
+  final _typeController = TextEditingController(text: 'PLA');
+  final _colorController = TextEditingController();
+  final _diameterController = TextEditingController(text: '1.75mm');
+  final _weightController = TextEditingController(text: '1000');
+
+  @override
+  void dispose() {
+    _manufacturerController.dispose();
+    _colorController.dispose();
+    _diameterController.dispose();
+    _weightController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,84 +45,88 @@ class _AddMaterialSheetState extends State<AddMaterialSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Картка нового матеріалу', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Додати новий матеріал', 
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 16),
+              
               TextFormField(
+                controller: _manufacturerController,
                 decoration: const InputDecoration(labelText: 'Виробник', border: OutlineInputBorder()),
                 validator: (v) => v == null || v.trim().isEmpty ? 'Введіть виробника' : null,
-                onSaved: (v) => _manufacturer = v!.trim(),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedType,
-                decoration: const InputDecoration(labelText: 'Тип матеріалу', border: OutlineInputBorder()),
-                items: ['PLA', 'PETG', 'TPU'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-                onChanged: (v) => _selectedType = v!,
+              
+              TextFormField(
+                controller: _colorController,
+                decoration: const InputDecoration(labelText: 'Колір (назва або HEX)', border: OutlineInputBorder()),
+                validator: (v) => v == null || v.trim().isEmpty ? 'Введіть колір' : null,
               ),
               const SizedBox(height: 12),
+
               Row(
                 children: [
                   Expanded(
-                    flex: 2,
-                    child: TextFormField(
-                      decoration: const InputDecoration(labelText: 'Колір', border: OutlineInputBorder()),
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Введіть колір' : null,
-                      onSaved: (v) => _color = v!.trim(),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _typeController.text,
+                      decoration: const InputDecoration(labelText: 'Тип', border: OutlineInputBorder()),
+                      items: ['PLA', 'PETG', 'TPU', 'ABS']
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) => _typeController.text = v!,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    flex: 1,
                     child: DropdownButtonFormField<String>(
-                      initialValue: _diameter,
+                      initialValue: _diameterController.text,
                       decoration: const InputDecoration(labelText: 'Діаметр', border: OutlineInputBorder()),
-                      items: ['1.75mm', '2.85mm'].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-                      onChanged: (v) => _diameter = v!,
+                      items: ['1.75mm', '2.85mm']
+                          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                          .toList(),
+                      onChanged: (v) => _diameterController.text = v!,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
+
               TextFormField(
-                decoration: const InputDecoration(labelText: 'Посилання на зображення (URL)', border: OutlineInputBorder()),
-                keyboardType: TextInputType.url,
-                onSaved: (v) => _imageUrl = v?.trim() ?? '',
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Початкова вага матеріалу (г)', border: OutlineInputBorder()),
+                controller: _weightController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                initialValue: '1000',
+                decoration: const InputDecoration(labelText: 'Початкова вага котушки (г)', border: OutlineInputBorder()),
                 validator: (v) {
                   if (v == null || v.isEmpty) return 'Введіть вагу';
-                  if (!RegExp(r'^[0-9]*\.?[0-9]+$').hasMatch(v)) return 'Лише числа через крапку';
+                  if (double.tryParse(v) == null) return 'Лише числа';
                   return null;
                 },
-                onSaved: (v) => _weight = double.parse(v!),
               ),
               const SizedBox(height: 20),
+              
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: Colors.blueGrey.shade700,
+                  backgroundColor: Colors.amber.shade700,
                   foregroundColor: Colors.white,
                 ),
                 onPressed: () {
-                  if (_formKey.currentState!.validate()) {
-                    _formKey.currentState!.save();
-                    
-                    widget.blocContext.read<InventoryBloc>().add(AddMaterialEvent(
-                      manufacturer: _manufacturer,
-                      type: _selectedType,
-                      color: _color,
-                      diameter: _diameter,
-                      imageUrl: _imageUrl,
-                      weight: _weight,
-                    ));
+                  if (_formKey.currentState?.validate() ?? false) {
+                    // ЗАЛІЗОБЕТОННИЙ ФІКС: Використовуємо правильний параметр initialWeight замість застарілого weight
+                    widget.inventoryBloc.add(
+                      AddMaterialEvent(
+                        manufacturer: _manufacturerController.text.trim(),
+                        type: _typeController.text,
+                        color: _colorController.text.trim(),
+                        diameter: _diameterController.text,
+                        initialWeight: double.parse(_weightController.text), // Тут була помилка!
+                        imageUrl: null,
+                      ),
+                    );
                     Navigator.pop(context);
                   }
                 },
-                child: const Text('Зберегти в інвентар', style: TextStyle(fontSize: 16)),
+                child: const Text('Зберегти на склад', style: TextStyle(fontSize: 16)),
               ),
             ],
           ),

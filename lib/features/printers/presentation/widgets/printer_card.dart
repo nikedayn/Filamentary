@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:filamentary/core/database/database.dart' as db;
+import 'package:filamentary/features/printers/domain/models/app_printer.dart'; // чиста модель
+import 'package:filamentary/core/network/printer_client_interface.dart'; 
 import '../printers_bloc.dart';
 import '../printer_detail_screen.dart';
 import 'printer_status_badge.dart';
 import 'edit_printer_dialog.dart';
 
 class PrinterCard extends StatelessWidget {
-  final db.Printer printer;
+  final AppPrinter printer; 
 
   const PrinterCard({super.key, required this.printer});
 
@@ -31,11 +32,10 @@ class PrinterCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. НАЗВА ТА ВИДАЛЕННЯ
+              // 1. НАЗВА ТА УПРАВЛІННЯ
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Назва принтера
                   Expanded(
                     child: Text(
                       printer.name, 
@@ -44,10 +44,10 @@ class PrinterCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  
-                  // КНОПКА РЕДАГУВАННЯ (Олівець)
                   IconButton(
                     icon: const Icon(Icons.edit_note, size: 22, color: Colors.blueGrey),
+                    constraints: const BoxConstraints(), // Зменшуємо дефолтні падінги кнопки
+                    padding: EdgeInsets.zero,
                     tooltip: 'Редагувати принтер',
                     onPressed: () {
                       final printersBloc = context.read<PrintersBloc>();
@@ -60,13 +60,13 @@ class PrinterCard extends StatelessWidget {
                       );
                     },
                   ),
-
-                  // КНОПКА ВИДАЛЕННЯ (Червоний смітник) з підтвердженням
+                  const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                    constraints: const BoxConstraints(),
+                    padding: EdgeInsets.zero,
                     tooltip: 'Видалити принтер',
                     onPressed: () {
-                      // Фіксуємо Блок перед відкриттям діалогу, щоб не втратити контекст
                       final printersBloc = context.read<PrintersBloc>();
 
                       showDialog(
@@ -79,7 +79,7 @@ class PrinterCard extends StatelessWidget {
                               Text('Видалення принтера', style: TextStyle(fontWeight: FontWeight.bold)),
                             ],
                           ),
-                          content: Text('Ви впевнені, що хочете видалити принтер "${printer.name}"? Цю дію не можна буде скасувати.'),
+                          content: Text('Ви впевнені, що хочете видалити принтер "${printer.name}"?'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(dialogContext), 
@@ -91,9 +91,8 @@ class PrinterCard extends StatelessWidget {
                                 foregroundColor: Colors.white,
                               ),
                               onPressed: () {
-                                // Викликаємо видалення через зафіксований Блок
                                 printersBloc.add(DeletePrinterEvent(printer.id));
-                                Navigator.pop(dialogContext); // Закриваємо діалог
+                                Navigator.pop(dialogContext);
                               },
                               child: const Text('Видалити'),
                             ),
@@ -106,47 +105,53 @@ class PrinterCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
 
-              // 2. ЗОБРАЖЕННЯ З БЕЙДЖЕМ
+              // 2. ПРЕВ'Ю ЗОБРАЖЕННЯ (ФІКС: Використовуємо Expanded, щоб макет контролював висоту)
               Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.shade50,
-                          borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 1.0, // Ідеальний квадрат
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: printer.imageUrl != null && printer.imageUrl!.isNotEmpty
+                                  ? Image.network(
+                                      printer.imageUrl!,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) => const Icon(
+                                        Icons.print_outlined, 
+                                        color: Colors.blueGrey, 
+                                        size: 36,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.print_outlined, 
+                                      color: Colors.blueGrey, 
+                                      size: 36,
+                                    ),
+                            ),
+                          ),
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: printer.imageUrl != null && printer.imageUrl!.isNotEmpty
-                              ? Image.network(
-                                  printer.imageUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(
-                                    Icons.print_outlined, 
-                                    color: Colors.blueGrey, 
-                                    size: 36,
-                                  ),
-                                )
-                              : const Icon(
-                                  Icons.print_outlined, 
-                                  color: Colors.blueGrey, 
-                                  size: 36,
-                                ),
+                        const Positioned(
+                          top: 8,
+                          left: 8,
+                          child: PrinterStatusBadge(state: PrinterState.offline),
                         ),
-                      ),
+                      ],
                     ),
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: PrinterStatusBadge(printer: printer),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
 
-              // 3. ІНФОРМАЦІЙНИ / СЛОТИ
+              // 3. СПЕЦИФІКАЦІЇ ПРИСТРОЮ (Більше нікуди не зсуваються і не затискаються)
               Text(
                 '${printer.manufacturer} ${printer.model}',
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),

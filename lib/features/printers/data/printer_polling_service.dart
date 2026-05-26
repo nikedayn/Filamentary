@@ -1,35 +1,27 @@
 import 'package:injectable/injectable.dart';
-import 'package:filamentary/core/network/api_client.dart';
-import 'package:filamentary/core/utils/app_logger.dart';
+import 'package:filamentary/core/network/printer_client_interface.dart';
+import 'package:filamentary/core/network/klipper_client.dart';
 
 @LazySingleton()
 class PrinterPollingService {
-  final ApiClient _apiClient;
+  // Ми ініціалізуємо клієнт Klipper. За потреби сюди можна додати BambuClient тощо.
+  final KlipperClient _klipperClient = KlipperClient();
 
-  PrinterPollingService(this._apiClient);
-
-  // Опитування стану принтера залежно від його типу
-  Future<Map<String, dynamic>> fetchPrinterStatus(String ipAddress, String type) async {
-    try {
-      if (type.toLowerCase() == 'klipper') {
-        // Запит до Moonraker API для Klipper
-        final response = await _apiClient.dio.get('http://$ipAddress/printer/objects/query?print_stats');
-        if (response.statusCode == 200) {
-          final status = response.data['result']['status']['print_stats']['state']; // e.g. "printing", "complete"
-          return {'status': status, 'success': true};
-        }
-      } else if (type.toLowerCase() == 'bambu') {
-        // Базовий REST-запит для Bambu API
-        final response = await _apiClient.dio.get('http://$ipAddress/api/v1/status');
-        if (response.statusCode == 200) {
-          return {'status': response.data['print_status'], 'success': true};
-        }
-      }
-      return {'status': 'offline', 'success': false};
-    } catch (e) {
-      // Якщо принтер вимкнений, Dio викине помилку таймауту. Логуємо її м'яко без падіння додатку
-      AppLogger.w('Принтер $ipAddress недоступний (Offline)');
-      return {'status': 'offline', 'success': false};
+  /// Автоматично підбирає потрібний клієнт на основі виробника (Klipper, Elegoo, Voron...)
+  Future<PrinterTelemetry> fetchPrinterStatus({
+    required String ipAddress,
+    required int port,
+    required String type,
+    String? apiKey,
+  }) async {
+    // Чиста логіка вибору: якщо це не специфічний закритий екосистемний принтер,
+    // за замовчуванням опитуємо його як Klipper (через Moonraker API)
+    if (type.toLowerCase() == 'bambu' || type.toLowerCase() == 'bambulab') {
+      // Тут у майбутньому буде: return _bambuClient.getStatus(...);
+      return PrinterTelemetry.offline(); 
     }
+
+    // Для всіх Klipper-сумісних пристроїв (Elegoo Neptune 4, Creality K1, Voron)
+    return _klipperClient.getStatus(ipAddress, port, apiKey);
   }
 }

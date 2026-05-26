@@ -16,17 +16,17 @@ class PrinterPresets {
       PrinterModelPreset(
         modelName: 'Neptune 4', 
         defaultSlots: 1,
-        imageUrl: 'https://images.officialthreed.com/products/elegoo/neptune-4/neptune-4-1.jpg',
+        imageUrl: 'https://cdn03.plentymarkets.com/ioseuwg7moqp/item/images/32285/full/Elegoo-Neptune-4-3D-Printer-32285.png',
       ),
       PrinterModelPreset(
         modelName: 'Neptune 4 Pro', 
         defaultSlots: 1,
-        imageUrl: 'https://images.officialthreed.com/products/elegoo/neptune-4-pro/neptune-4-pro-1.jpg',
+        imageUrl: 'https://images.tcdn.com.br/img/img_prod/1374743/impressora_3d_filamento_elegoo_neptune_4_pro_117_1_1f427c7e6105d9a33aec990972b18b53.png',
       ),
       PrinterModelPreset(
         modelName: 'Neptune 4 Max', 
         defaultSlots: 1,
-        imageUrl: 'https://images.officialthreed.com/products/elegoo/neptune-4-max/neptune-4-max-1.jpg',
+        imageUrl: 'https://cdn.awsli.com.br/400x400/1923/1923652/produto/336648704/neptune-4-pro--6--68lr64s6rw.png',
       ),
     ],
     'Bambu Lab': [

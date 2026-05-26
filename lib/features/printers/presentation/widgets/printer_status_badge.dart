@@ -1,102 +1,66 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:filamentary/core/di/injection.dart';
-import 'package:filamentary/core/network/moonraker_client.dart';
-import 'package:filamentary/core/database/database.dart' as db;
+import 'package:filamentary/core/network/printer_client_interface.dart';
 
-class PrinterStatusBadge extends StatefulWidget {
-  final db.Printer printer;
+class PrinterStatusBadge extends StatelessWidget {
+  final PrinterState state; 
 
-  const PrinterStatusBadge({super.key, required this.printer});
-
-  @override
-  State<PrinterStatusBadge> createState() => _PrinterStatusBadgeState();
-}
-
-class _PrinterStatusBadgeState extends State<PrinterStatusBadge> {
-  final _client = getIt<MoonrakerClient>();
-  Timer? _timer;
-  
-  String _status = 'loading'; // loading, printing, standby, offline
-  double _progress = 0.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchStatus();
-    // Опитуємо конкретний принтер кожні 4 секунди
-    _timer = Timer.periodic(const Duration(seconds: 4), (_) => _fetchStatus());
-  }
-
-  Future<void> _fetchStatus() async {
-    final telemetry = await _client.getPrinterStatus(
-      widget.printer.ipAddress,
-      widget.printer.port,
-      widget.printer.apiKey,
-    );
-
-    if (mounted) {
-      setState(() {
-        if (!(telemetry['isOnline'] ?? false)) {
-          _status = 'offline';
-        } else {
-          _status = telemetry['state'] ?? 'standby';
-          _progress = telemetry['progress'] ?? 0.0;
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
+  const PrinterStatusBadge({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {
-    Color badgeColor = Colors.grey;
-    String statusText = 'ОПИТУВАННЯ';
+    Color backgroundColor;
+    Color textColor;
+    String text;
 
-    switch (_status) {
-      case 'printing':
-        badgeColor = Colors.green;
-        statusText = 'ДРУК (${_progress.toStringAsFixed(0)}%)';
+    switch (state) {
+      case PrinterState.printing:
+        backgroundColor = Colors.green.shade100;
+        textColor = Colors.green.shade800;
+        text = 'Друк...';
         break;
-      case 'paused':
-        badgeColor = Colors.amber;
-        statusText = 'ПАУЗА';
+      case PrinterState.paused:
+        backgroundColor = Colors.orange.shade100;
+        textColor = Colors.orange.shade800;
+        text = 'Пауза';
         break;
-      case 'standby':
-        badgeColor = Colors.blueGrey;
-        statusText = 'ГОТОВИЙ';
+      case PrinterState.standby:
+        backgroundColor = Colors.blue.shade100;
+        textColor = Colors.blue.shade800;
+        text = 'Готовий';
         break;
-      case 'offline':
-        badgeColor = Colors.redAccent;
-        statusText = 'ОФЛАЙН';
+      case PrinterState.error:
+        backgroundColor = Colors.red.shade900;
+        textColor = Colors.white;
+        text = 'Критичний збій';
+        break;
+      case PrinterState.offline:
+        backgroundColor = Colors.red.shade100;
+        textColor = Colors.red.shade900;
+        text = 'Офлайн';
         break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      // Збільшуємо горизонтальний падінг для правильної форми капсули
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withAlpha(150), // Напівпрозоре тло, щоб текст читався на фото
-        borderRadius: BorderRadius.circular(6),
+        color: backgroundColor,
+        // ЧІТКИЙ UI ФІКС: Повне закруглення з усіх боків (форма стадіону)
+        borderRadius: BorderRadius.circular(10),
+        // Легкий нативний бордер для виразності на фоні світлого AppBar
+        border: Border.all(
+          color: textColor.withValues(alpha: 0.15),
+          width: 1,
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            statusText,
-            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-          ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: textColor, 
+          fontWeight: FontWeight.bold, 
+          fontSize: 12, // Трохи збільшили для десктопного монітора
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }

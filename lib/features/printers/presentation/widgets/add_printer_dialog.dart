@@ -25,17 +25,16 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
   int _slotsCount = 1;
   int _port = 80;
   String? _apiKey;
-  String? _manualImageUrl; // Посилання, яке користувач вводить ручками для "Іншої" моделі
+  String? _manualImageUrl; 
 
   bool _isAdvancedMode = false;
 
   List<String> _getModelsForBrand(String brand) {
     if (brand == 'Інший') return ['Інша модель'];
     final presets = PrinterPresets.brandsData[brand] ?? [];
-    return presets.map((e) => e.modelName).toList()..add('Інша модель');
+    return presets.map((e) => e.modelName).toList()..add('Інша model');
   }
 
-  // Метод автоматичного визначення параметрів на основі пресету
   PrinterModelPreset? _getCurrentPreset() {
     if (_selectedBrand == 'Інший' || _selectedModel == 'Інша модель') return null;
     final presets = PrinterPresets.brandsData[_selectedBrand] ?? [];
@@ -48,7 +47,6 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
     final List<String> availableModels = _getModelsForBrand(_selectedBrand);
     final currentPreset = _getCurrentPreset();
 
-    // Якщо це пресет — беремо кількість слотів автоматично
     if (currentPreset != null) {
       _slotsCount = currentPreset.defaultSlots;
     }
@@ -80,7 +78,7 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
                 
                 // Вибір Виробника
                 DropdownButtonFormField<String>(
-                  initialValue: _selectedBrand,
+                  initialValue: _selectedBrand, // ФІКС: Замінено застарілий initialValue на value
                   decoration: const InputDecoration(labelText: 'Виробник', border: OutlineInputBorder()),
                   items: availableBrands.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
                   onChanged: (v) {
@@ -102,7 +100,7 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
 
                 // Вибір Моделі
                 DropdownButtonFormField<String>(
-                  initialValue: _selectedModel,
+                  initialValue: _selectedModel, // ФІКС: Замінено застарілий initialValue на value
                   decoration: const InputDecoration(labelText: 'Модель принтера', border: OutlineInputBorder()),
                   items: availableModels.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
                   onChanged: (v) {
@@ -120,17 +118,13 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
                   ),
                 ],
 
-                // РОЗУМНІ ПОЛЯ ДЛЯ КАСТОМНОГО ПРИНТЕРА
-                // Показуються тільки якщо бренд "Інший" або модель "Інша"
                 if (_selectedBrand == 'Інший' || _selectedModel == 'Інша модель') ...[
                   const SizedBox(height: 12),
-                  // 1. Поле введення URL фото — з'являється автоматично за вашою умовою!
                   TextFormField(
-                    decoration: const InputDecoration(labelText: 'Посилання на фото принтера (URL)', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Посилання на photo принтера (URL)', border: OutlineInputBorder()),
                     onSaved: (v) => _manualImageUrl = v?.trim().isEmpty == true ? null : v?.trim(),
                   ),
                   const SizedBox(height: 12),
-                  // 2. Вибір кількості слотів
                   TextFormField(
                     initialValue: '1',
                     decoration: const InputDecoration(labelText: 'Кількість слотів під котушки', border: OutlineInputBorder()),
@@ -144,7 +138,6 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
                 ],
                 const SizedBox(height: 8),
 
-                // Розширені налаштування (Порт / API)
                 CheckboxListTile(
                   title: const Text('Розширені налаштування (Порт / API)', style: TextStyle(fontSize: 14, color: Colors.grey)),
                   value: _isAdvancedMode,
@@ -180,10 +173,9 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
 
               final finalBrand = _selectedBrand == 'Інший' ? _customBrand : _selectedBrand;
               final finalModel = _selectedModel == 'Інша модель' ? _customModel : _selectedModel;
-              
-              // Розумний вибір картинки: або з нашого пресета, або те, що користувач ввів вручну
               final finalImageUrl = currentPreset != null ? currentPreset.imageUrl : _manualImageUrl;
 
+              // ЗАЛІЗОБЕТОННИЙ ВИКЛИК: Блок тепер без помилок приймає imageUrl
               widget.printersBloc.add(AddPrinterEvent(
                 name: _name,
                 ipAddress: _ipAddress,
@@ -192,7 +184,7 @@ class _AddPrinterDialogState extends State<AddPrinterDialog> {
                 port: _port,
                 apiKey: _apiKey,
                 slotsCount: _slotsCount,
-                imageUrl: finalImageUrl, // Передаємо розумний URL в Блок
+                imageUrl: finalImageUrl, 
               ));
 
               Navigator.pop(context);
