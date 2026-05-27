@@ -1,13 +1,13 @@
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
-import 'injection.config.dart'; // Цей файл згенерується автоматично!
+import 'injection.config.dart'; 
 
 final GetIt getIt = GetIt.instance;
 
 @InjectableInit(
   initializerName: 'init', 
-  preferRelativeImports: true, 
+  preferRelativeImports: false, // 👈 ФІКС: Тепер генератор буде використовувати тільки package-імпорти!
   asExtension: true, 
 )
-// ФІКС: Прибираємо await перед getIt, бо сам метод ініціалізації синхронний
+// Викликаємо чисту автогенерацію, де вже прописані всі репозиторії та Блоки
 void configureDependencies() => getIt.init();

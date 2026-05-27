@@ -16,13 +16,12 @@ class ManualPrintDialog extends StatefulWidget {
 class _ManualPrintDialogState extends State<ManualPrintDialog> {
   final _formKey = GlobalKey<FormState>();
   
-  // Контролери для текстових полів
   final _modelNameController = TextEditingController();
   final _hoursController = TextEditingController(text: '0');
   final _minutesController = TextEditingController(text: '0');
 
   String _status = 'Успішно';
-  DateTime _selectedDateTime = DateTime.now(); // Єдине джерело правди для часу початку
+  DateTime _selectedDateTime = DateTime.now(); 
   
   final Map<int, double> _slotWeights = {};
 
@@ -44,7 +43,6 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
     super.dispose();
   }
 
-  // Чистий метод-хелпер для вибору дати та часу
   Future<void> _pickDateTime() async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
@@ -83,198 +81,260 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
         .where((e) => e.value.linkedMaterialId?.isNotEmpty == true)
         .toList();
 
-    // Форматуємо дату для відображення користувачу
     final String formattedDateTime = DateFormat('dd.MM.yyyy HH:mm').format(_selectedDateTime);
 
-    return AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.add_chart, color: Colors.blueGrey),
-          SizedBox(width: 10),
-          Text('Додати друк вручну', style: TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: Form(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isMobile = constraints.maxWidth < 600;
+
+        // ВНУТРІШНЯ РОЗМІТКА ФОРМИ (Спільна для Desktop та Mobile)
+        Widget buildFormContent() {
+          return Form(
             key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 1. Назва моделі
-                TextFormField(
-                  controller: _modelNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Назва деталі / G-code файлу',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.insert_drive_file_outlined),
-                  ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Введіть назву' : null,
-                ),
-                const SizedBox(height: 16),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isMobile)
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
 
-                // 2. Вибір дати та часу початку друку
-                InkWell(
-                  onTap: _pickDateTime,
-                  borderRadius: BorderRadius.circular(8),
-                  child: InputDecorator(
+                  // 1. ЗАГОЛОВОК З ЗАХИСТОМ Expanded
+                  Row(
+                    children: [
+                      const Icon(Icons.add_chart, color: Colors.blueGrey, size: 22),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Додати друк вручну', 
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 2. НАЗВА МОДЕЛІ
+                  TextFormField(
+                    controller: _modelNameController,
                     decoration: const InputDecoration(
-                      labelText: 'Час початку друку',
+                      labelText: 'Назва деталі / G-code файлу',
                       border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.calendar_month_outlined),
+                      isDense: true,
+                      prefixIcon: Icon(Icons.insert_drive_file_outlined, size: 18),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          formattedDateTime,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                        ),
-                        const Icon(Icons.arrow_drop_down, color: Colors.blueGrey),
-                      ],
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Введіть назву' : null,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 3. ВИБІР ЧАСУ ПОЧАТКУ
+                  InkWell(
+                    onTap: _pickDateTime,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Час початку друку',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        prefixIcon: Icon(Icons.calendar_month_outlined, size: 18),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            formattedDateTime,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                          const Icon(Icons.arrow_drop_down, color: Colors.blueGrey),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 12),
 
-                // 3. Розділена тривалість (Години / Хвилини) та Статус
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _hoursController,
-                        decoration: const InputDecoration(
-                          labelText: 'Години',
-                          border: OutlineInputBorder(),
-                          suffixText: 'год',
-                        ),
-                        keyboardType: TextInputType.number,
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return '0';
-                          if (int.tryParse(v) == null) return 'Помилка';
-                          return null;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _minutesController,
-                        decoration: const InputDecoration(
-                          labelText: 'Хвилини',
-                          border: OutlineInputBorder(),
-                          suffixText: 'хв',
-                        ),
-                        keyboardType: TextInputType.number,
-                        validator: (v) {
-                          if (v == null || v.isEmpty) return '0';
-                          final val = int.tryParse(v);
-                          if (val == null) return 'Помилка';
-                          if (val < 0 || val > 59) return '0-59';
-                          return null;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _status,
-                        decoration: const InputDecoration(
-                          labelText: 'Статус',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: ['Успішно', 'Скасовано', 'Збій'].map((s) {
-                          return DropdownMenuItem(value: s, child: Text(s));
-                        }).toList(),
-                        onChanged: (val) => setState(() => _status = val!),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 8),
-                const Text(
-                  'Витрата пластику по слотах:',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.blueGrey),
-                ),
-                const SizedBox(height: 10),
-
-                if (assignedSlots.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text(
-                      'На принтері немає заправлених котушок.',
-                      style: TextStyle(color: Colors.redAccent, fontStyle: FontStyle.italic),
-                    ),
-                  ),
-
-                ...assignedSlots.map((entry) {
-                  final idx = entry.key;
-                  final slot = entry.value;
-                  final String matId = slot.linkedMaterialId ?? '';
-                  final String shortId = matId.length > 8 ? matId.substring(0, 8) : matId;
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: Row(
+                  // 4. АДАПТИВНИЙ РЯДОК ТРИВАЛОСТІ ТА СТАТУСУ
+                  if (isMobile) ...[
+                    // На телефонах розбиваємо на два рядки, щоб не було Overflow
+                    Row(
                       children: [
                         Expanded(
-                          flex: 2,
-                          child: Text(
-                            'Слот #${idx + 1} (ID: $shortId...)',
-                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          child: TextFormField(
+                            controller: _hoursController,
+                            decoration: const InputDecoration(labelText: 'Години', isDense: true, border: OutlineInputBorder(), suffixText: 'год'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _minutesController,
+                            decoration: const InputDecoration(labelText: 'Хвилини', isDense: true, border: OutlineInputBorder(), suffixText: 'хв'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _status,
+                      decoration: const InputDecoration(labelText: 'Статус', isDense: true, border: OutlineInputBorder()),
+                      items: ['Успішно', 'Скасовано', 'Збій'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      onChanged: (val) => setState(() => _status = val!),
+                    ),
+                  ] else ...[
+                    // На десктопі залишаємо все в один компактний рядок
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _hoursController,
+                            decoration: const InputDecoration(labelText: 'Години', isDense: true, border: OutlineInputBorder(), suffixText: 'год'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _minutesController,
+                            decoration: const InputDecoration(labelText: 'Хвилини', isDense: true, border: OutlineInputBorder(), suffixText: 'хв'),
+                            keyboardType: TextInputType.number,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          flex: 1,
-                          child: TextFormField(
-                            decoration: const InputDecoration(
-                              suffixText: 'г',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            initialValue: '0',
-                            validator: (v) {
-                              if (v == null || v.isEmpty) return '0';
-                              if (double.tryParse(v) == null) return 'Помилка';
-                              return null;
-                            },
-                            onSaved: (v) {
-                              if (v != null) {
-                                _slotWeights[idx] = double.tryParse(v) ?? 0.0;
-                              }
-                            },
+                          child: DropdownButtonFormField<String>(
+                            value: _status,
+                            decoration: const InputDecoration(labelText: 'Статус', isDense: true, border: OutlineInputBorder()),
+                            items: ['Успішно', 'Скасовано', 'Збій'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                            onChanged: (val) => setState(() => _status = val!),
                           ),
                         ),
                       ],
                     ),
-                  );
-                }),
-              ],
+                  ],
+
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Витрата пластику по слотах:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blueGrey),
+                  ),
+                  const SizedBox(height: 10),
+
+                  if (assignedSlots.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text(
+                        'На принтері немає заправлених котушок.',
+                        style: TextStyle(color: Colors.redAccent, fontStyle: FontStyle.italic, fontSize: 13),
+                      ),
+                    ),
+
+                  ...assignedSlots.map((entry) {
+                    final idx = entry.key;
+                    final slot = entry.value;
+                    final String matId = slot.linkedMaterialId ?? '';
+                    final String shortId = matId.length > 8 ? matId.substring(0, 8) : matId;
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Слот #${idx + 1} (ID: $shortId...)',
+                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 1,
+                            child: TextFormField(
+                              decoration: const InputDecoration(
+                                suffixText: 'г',
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              ),
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              initialValue: '0',
+                              onSaved: (v) {
+                                if (v != null) {
+                                  _slotWeights[idx] = double.tryParse(v) ?? 0.0;
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+
+                  // КНОПКИ УПРАВЛІННЯ
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('Скасувати', style: TextStyle(color: Colors.grey.shade700)),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueGrey.shade700,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        onPressed: assignedSlots.isEmpty ? null : _submitData,
+                        child: const Text('Зафіксувати друк', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          );
+        }
+
+        // ПОВНА АДАПТИВНІСТЬ: Шторка для телефону, Діалог для десктопу
+        if (isMobile) {
+          return buildFormContent();
+        }
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: buildFormContent(),
           ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Скасувати', style: TextStyle(color: Colors.grey)),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blueGrey.shade700,
-            foregroundColor: Colors.white,
-          ),
-          onPressed: assignedSlots.isEmpty ? null : _submitData,
-          child: const Text('Зафіксувати друк'),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -284,8 +344,6 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
 
     final int hours = int.tryParse(_hoursController.text.trim()) ?? 0;
     final int minutes = int.tryParse(_minutesController.text.trim()) ?? 0;
-    
-    // БІЗНЕС-КОНВЕРСІЯ: переводимо години і хвилини в секунди для збереження у базі
     final int durationSeconds = (hours * 3600) + (minutes * 60);
 
     if (durationSeconds <= 0) {
@@ -317,7 +375,6 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
       return;
     }
 
-    // Повертаємо чистий Map з адаптованими даними
     Navigator.pop(context, {
       'id': const Uuid().v4(),
       'printerId': widget.printer.id,
@@ -325,7 +382,7 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
       'status': _status,
       'spentWeight': totalSpentWeight,
       'usedMaterialsLogJson': jsonEncode(materialsLog),
-      'startTime': _selectedDateTime, // Передаємо обрану користувачем дату назад у BLoC
+      'startTime': _selectedDateTime, 
       'duration': durationSeconds,
     });
   }

@@ -11,7 +11,7 @@ import 'package:uuid/uuid.dart';
 import 'dart:convert';
 
 // ==========================================
-// ПОДІЇ (EVENTS)
+// EVENTS
 // ==========================================
 abstract class PrinterDetailEvent extends Equatable {
   const PrinterDetailEvent();
@@ -43,9 +43,7 @@ class UpdatePrinterObjectEvent extends PrinterDetailEvent {
 class DeletePrintJobEvent extends PrinterDetailEvent {
   final db.PrintJob job;
   final bool restoreWeight;
-
   const DeletePrintJobEvent({required this.job, required this.restoreWeight});
-
   @override
   List<Object?> get props => [job, restoreWeight];
 }
@@ -53,9 +51,7 @@ class DeletePrintJobEvent extends PrinterDetailEvent {
 class EditPrintJobEvent extends PrinterDetailEvent {
   final db.PrintJob oldJob;
   final Map<String, dynamic> updatedData;
-
   const EditPrintJobEvent({required this.oldJob, required this.updatedData});
-
   @override
   List<Object?> get props => [oldJob, updatedData];
 }
@@ -71,33 +67,27 @@ class ChangeSlotMaterialEvent extends PrinterDetailEvent {
   final String printerId;
   final int slotIndex;
   final String? materialId;
-
-  const ChangeSlotMaterialEvent({
-    required this.printerId,
-    required this.slotIndex,
-    this.materialId,
-  });
-
+  const ChangeSlotMaterialEvent({required this.printerId, required this.slotIndex, this.materialId});
   @override
   List<Object?> get props => [printerId, slotIndex, materialId];
 }
 
 // ==========================================
-// СТАН (STATE)
+// STATE
 // ==========================================
 class PrinterDetailState extends Equatable {
   final bool isLoading;
   final AppPrinter? printer; 
   final PrinterTelemetry telemetry; 
   final List<db.PrintJob> history;
-  final List<db.Material> materials; // ФІКС 1: Додали список усіх котушок у стан
+  final List<db.Material> materials; 
 
   const PrinterDetailState({
     required this.isLoading,
     this.printer,
     required this.telemetry,
     required this.history,
-    required this.materials, // ФІКС 2: Додали в конструктор
+    required this.materials, 
   });
 
   factory PrinterDetailState.initial() {
@@ -106,7 +96,7 @@ class PrinterDetailState extends Equatable {
       printer: null,
       telemetry: PrinterTelemetry.offline(), 
       history: [],
-      materials: [], // ФІКС 3: Початковий пустий список
+      materials: [], 
     );
   }
 
@@ -115,23 +105,23 @@ class PrinterDetailState extends Equatable {
     AppPrinter? printer,
     PrinterTelemetry? telemetry,
     List<db.PrintJob>? history,
-    List<db.Material>? materials, // ФІКС 4: Додали в copyWith
+    List<db.Material>? materials, 
   }) {
     return PrinterDetailState(
       isLoading: isLoading ?? this.isLoading,
       printer: printer ?? this.printer,
       telemetry: telemetry ?? this.telemetry,
       history: history ?? this.history,
-      materials: materials ?? this.materials, // ФІКС 5
+      materials: materials ?? this.materials, 
     );
   }
 
   @override
-  List<Object?> get props => [isLoading, printer, telemetry, history, materials]; // ФІКС 6
+  List<Object?> get props => [isLoading, printer, telemetry, history, materials]; 
 }
 
 // ==========================================
-// БІЗНЕС-ЛОГІКА (BLOC)
+// BLOC
 // ==========================================
 @injectable
 class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
@@ -158,16 +148,13 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
       _pollingTimer = null;
       _printerSubscription?.cancel();
 
-      // Первинне збереження принтера у стан
       emit(state.copyWith(printer: event.printer));
 
-      // 1. РЕАКТИВНЕ ВІДСТЕЖЕННЯ КАРТКИ ПРИНТЕРА З БАЗИ ДАНИХ
+      // 1. РЕАКТИВНЕ ВІДСТЕЖЕННЯ З БАЗИ
       _printerSubscription = (_db.select(_db.printers)..where((tbl) => tbl.id.equals(event.printer.id)))
           .watchSingleOrNull()
           .listen((dbPrinter) {
         if (dbPrinter != null && !isClosed) {
-          final List<dynamic> rawSlots = []; 
-          
           final updatedAppPrinter = AppPrinter(
             id: dbPrinter.id,
             name: dbPrinter.name,
@@ -185,10 +172,7 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
               } catch (_) {
                 materialId = null;
               }
-              return PrinterSlot(
-                index: index,
-                linkedMaterialId: materialId,
-              );
+              return PrinterSlot(index: index, linkedMaterialId: materialId);
             }),
             imageUrl: dbPrinter.imageUrl,
             version: dbPrinter.version,
@@ -199,63 +183,67 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
         }
       });
 
-      // 2. Завантажуємо історію друку з бази даних
+      // 2. Завантаження історії та інвентарю матеріалів
       final historyList = await (_db.select(_db.printJobs)
             ..where((tbl) => tbl.printerId.equals(event.printer.id))
             ..orderBy([(tbl) => OrderingTerm.desc(tbl.startTime)]))
           .get();
 
-      // 3. ДОДАНО: Завантажуємо абсолютно всі матеріали з інвентарю для форми редагування
       final allMaterialsList = await (_db.select(_db.materials)
           ..where((tbl) => tbl.isDeleted.equals(false)))
         .get();
 
       if (isClosed) return;
       
-      // 4. ОНОВЛЕНО: Емітимо фінальний початковий стан (історію + котушки) та вимикаємо лоадер
       emit(state.copyWith(
         history: historyList, 
-        materials: allMaterialsList, // Тепер маємо котушки у стані Блоку!
+        materials: allMaterialsList, 
         isLoading: false,
       ));
 
-      // 5. Петля контрольованого моніторингу мережі (Moonraker / Klipper API)
-      void startPollingLoop() {
-        if (isClosed) return;
+      // 3. Петля фонового пулінгу мережі
+      _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+        if (isClosed) {
+          timer.cancel();
+          return;
+        }
 
-        _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-          if (isClosed) {
-            timer.cancel();
-            return;
+        try {
+          final telemetryData = await _pollingService.fetchPrinterStatus(
+            ipAddress: event.printer.ipAddress,
+            port: event.printer.port,
+            type: event.printer.manufacturer, 
+            apiKey: event.printer.apiKey,
+          );
+          
+          if (!isClosed) {
+            add(UpdateTelemetry(telemetryData));
           }
-
-          try {
-            final telemetryData = await _pollingService.fetchPrinterStatus(
-              ipAddress: event.printer.ipAddress,
-              port: event.printer.port,
-              type: event.printer.manufacturer, 
-              apiKey: event.printer.apiKey,
-            );
+        } catch (e) {
+          // 🛠️ ФІКС ТУТ: Перехоплюємо помилки сервісу опитування й примусово кидаємо
+          // об'єкт офлайну разом із текстом винятку, щоб запрацювала червона плашка!
+          if (!isClosed) {
+            String errorMsg = e.toString();
             
-            if (!isClosed) {
-              add(UpdateTelemetry(telemetryData));
+            // Якщо це Bambu Lab, підказуємо конкретні причини
+            if (event.printer.manufacturer.toLowerCase().contains('bambu')) {
+              if (errorMsg.contains('Timeout')) {
+                errorMsg = 'Таймаут з\'єднання! Перевір Wi-Fi мережу або AP Isolation роутера.';
+              } else if (errorMsg.contains('Password') || errorMsg.contains('auth')) {
+                errorMsg = 'Неправильний Access Code! Перевір f07ed541 на екрані принтера.';
+              } else if (errorMsg.contains('Socket')) {
+                errorMsg = 'Помилка сокета Android. ПеревірusesCleartextTraffic у маніфесті.';
+              }
             }
-          } catch (e) {
-            // М'яке гасіння помилок мережі (якщо принтер офлайн)
+            
+            add(UpdateTelemetry(PrinterTelemetry.offline(errorMsg)));
           }
-        });
-      }
-
-      startPollingLoop();
+        }
+      });
     });
 
-    // 1. ОБРОБНИК ВИДАЛЕННЯ (З МОЖЛИВІСТЮ ПОВЕРНЕННЯ ВАГИ)
-    // 1. ОБРОБНИК ВИДАЛЕННЯ
-    // 1. ОБРОБНИК ВИДАЛЕННЯ (МАТЕМАТИЧНО КОРЕКТНИЙ)
-    // 1. ОБРОБНИК ВИДАЛЕННЯ (ЗАЛІЗОБЕТОННА МАТЕМАТИКА DRIFT)
     on<DeletePrintJobEvent>((event, emit) async {
       final job = event.job;
-
       try {
         await _db.transaction(() async {
           if (event.restoreWeight) {
@@ -264,39 +252,25 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
               final String matId = log['materialId'];
               final double spent = log['spentWeight'];
 
-              // ЧІТКИЙ ФІКС: Використовуємо кастомний SQL-апдейт прямо через Drift.
-              // Це 100% застраховано від помилок типів і виконує чисте віднімання в базі.
               await _db.customUpdate(
                 'UPDATE materials SET used_weight = used_weight - ? WHERE id = ?',
-                variables: [
-                  Variable<double>(spent),
-                  Variable<String>(matId),
-                ],
-                updates: {_db.materials}, // Кажемо Drift, яка таблиця змінилась для реактивності
+                variables: [Variable<double>(spent), Variable<String>(matId)],
+                updates: {_db.materials},
               );
             }
           }
-
-          // Видаляємо сам запис друку
           await (_db.delete(_db.printJobs)..where((tbl) => tbl.id.equals(job.id))).go();
         });
-
-        // Оновлюємо історію на UI
         await _refreshHistory(emit);
-        
-      } catch (e) {
-        // Логування помилок
-      }
+      } catch (_) {}
     });
 
-    // 2. ОБРОБНИК РЕДАГУВАННЯ
     on<EditPrintJobEvent>((event, emit) async {
       final oldJob = event.oldJob;
       final newData = event.updatedData;
 
       try {
         await _db.transaction(() async {
-          // КРОК А: Спершу повністю повертаємо стару вагу на старі котушки, які були записані раніше
           final List<dynamic> oldLogs = jsonDecode(oldJob.usedMaterialsLogJson);
           for (var log in oldLogs) {
             final String matId = log['materialId'] ?? '';
@@ -310,7 +284,6 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
             );
           }
 
-          // КРОК Б: Тепер списуємо нову відредаговану вагу з нових обраних котушок
           final List<dynamic> newLogs = jsonDecode(newData['usedMaterialsLogJson']);
           for (var log in newLogs) {
             final String matId = log['materialId'] ?? '';
@@ -324,37 +297,27 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
             );
           }
 
-          // КРОК В: Оновлюємо сам запис друку в таблиці PrintGrid
           await (_db.update(_db.printJobs)..where((tbl) => tbl.id.equals(oldJob.id))).write(
             db.PrintJobsCompanion(
               modelName: Value(newData['modelName']),
               status: Value(newData['status']),
               startTime: Value(newData['startTime']),
               duration: Value(newData['duration']),
-              spentWeight: Value(newData['spentWeight']), // Зберегли нову сумарну вагу
-              usedMaterialsLogJson: Value(newData['usedMaterialsLogJson']), // Зберегли нові котушки
+              spentWeight: Value(newData['spentWeight']),
+              usedMaterialsLogJson: Value(newData['usedMaterialsLogJson']),
             ),
           );
         });
-
-        // Оновлюємо UI логу
         await _refreshHistory(emit);
-        
-      } catch (e) {
-        // Логування
-      }
+      } catch (_) {}
     });
 
     on<UpdatePrinterObjectEvent>((event, emit) {
-      if (!isClosed) {
-        emit(state.copyWith(printer: event.printer));
-      }
+      if (!isClosed) emit(state.copyWith(printer: event.printer));
     });
 
     on<UpdateTelemetry>((event, emit) {
-      if (!isClosed) {
-        emit(state.copyWith(telemetry: event.telemetry));
-      }
+      if (!isClosed) emit(state.copyWith(telemetry: event.telemetry));
     });
 
     on<ChangeSlotMaterialEvent>((event, emit) async {
@@ -366,61 +329,43 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
           event.materialId,
           transactionId,
         );
-      } catch (e) {
-        // Логування помилок
-      }
+      } catch (_) {}
     });
 
-    // ФІКС 1: Перенесено обробник події всередину конструктора Блоку!
     on<AddManualPrintJobEvent>((event, emit) async {
       final data = event.printData;
-      
       try {
-        // ФІКС 2 & 3: Використовуємо _db та стандартний метод Drift для Companion-вставки
-        await _db.into(_db.printJobs).insert(
-          db.PrintJobsCompanion.insert(
-            id: data['id'],
-            printerId: data['printerId'],
-            modelName: data['modelName'],
-            status: data['status'],
-            spentWeight: data['spentWeight'],
-            usedMaterialsLogJson: data['usedMaterialsLogJson'],
-            startTime: data['startTime'],
-            duration: data['duration'],
-          ),
-        );
-
-        // Списання використаної ваги з котушок у базі SQLite
-        final List<dynamic> logs = jsonDecode(data['usedMaterialsLogJson']);
-        for (var log in logs) {
-          final String matId = log['materialId'];
-          final double spent = log['spentWeight'];
-          
-          // Створюємо транзакцію для оновлення поточної ваги матеріалу
-          await (_db.update(_db.materials)..where((tbl) => tbl.id.equals(matId))).write(
-            db.MaterialsCompanion(
-              // Збільшуємо використану вагу (Drift підтримує математичні вирази)
-              usedWeight: Value(spent), 
+        await _db.transaction(() async {
+          await _db.into(_db.printJobs).insert(
+            db.PrintJobsCompanion.insert(
+              id: data['id'],
+              printerId: data['printerId'],
+              modelName: data['modelName'],
+              status: data['status'],
+              spentWeight: data['spentWeight'],
+              usedMaterialsLogJson: data['usedMaterialsLogJson'],
+              startTime: data['startTime'],
+              duration: data['duration'],
             ),
           );
-        }
 
-        // ФІКС 4: Перечитуємо історію, щоб лог миттєво оновився на UI
-        if (state.printer != null) {
-          final updatedHistory = await (_db.select(_db.printJobs)
-                ..where((tbl) => tbl.printerId.equals(state.printer!.id))
-                ..orderBy([(tbl) => OrderingTerm.desc(tbl.startTime)]))
-              .get();
-          
-          if (!isClosed) {
-            emit(state.copyWith(history: updatedHistory));
+          final List<dynamic> logs = jsonDecode(data['usedMaterialsLogJson']);
+          for (var log in logs) {
+            final String matId = log['materialId'];
+            final double spent = log['spentWeight'];
+            
+            await _db.customUpdate(
+              'UPDATE materials SET used_weight = used_weight + ? WHERE id = ?',
+              variables: [Variable<double>(spent), Variable<String>(matId)],
+              updates: {_db.materials},
+            );
           }
-        }
-      } catch (e) {
-        // Логування помилок запису в базу
-      }
+        });
+
+        await _refreshHistory(emit);
+      } catch (_) {}
     });
-  } // <--- Тут конструктор тепер закривається абсолютно правильно
+  }
 
   @override
   Future<void> close() {

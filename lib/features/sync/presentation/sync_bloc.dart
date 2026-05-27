@@ -80,7 +80,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         if (event.choice == 'local') {
           // Залишаємо локальну версію, але збільшуємо її номер версії за формулою max+1
           // для того, щоб під час наступного циклу вона перезаписала хмару
-          int newV = _syncEngine.calculateNewVersion(
+          int _ = _syncEngine.calculateNewVersion(
             currentConflict.localData['version'], 
             currentConflict.cloudData['version']
           );

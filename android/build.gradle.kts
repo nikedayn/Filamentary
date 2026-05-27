@@ -1,7 +1,12 @@
 allprojects {
-    repositories {
-        google()
-        mavenCentral()
+    afterEvaluate {
+        if (project.hasProperty("android")) {
+            val android = project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
+            // Примусово змушуємо кожну лібу (включаючи file_picker) компілюватися під API 36
+            if (android.compileSdkVersion == "android-34" || android.compileSdkVersion == "android-35" || android.compileSdkVersion == null) {
+                android.compileSdkVersion(36)
+            }
+        }
     }
 }
 

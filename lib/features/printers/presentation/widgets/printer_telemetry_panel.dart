@@ -17,59 +17,89 @@ class PrinterTelemetryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 320,
-      padding: const EdgeInsets.all(16.0),
+      width: 360,
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Заголовок та назва принтера
-          Text(
-            printer.name,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            printer.model,
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 8),
-          const Divider(),
-          const SizedBox(height: 8),
+          // 1. ДІАГНОСТИКА ПОМИЛКИ: Якщо принтер офлайн і є текст помилки — показуємо картку попередження
+          if (!telemetry.isOnline && telemetry.errorMessage != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Помилка підключення до Bambu',
+                          style: TextStyle(
+                            fontSize: 13, 
+                            fontWeight: FontWeight.bold, 
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          telemetry.errorMessage!,
+                          style: TextStyle(
+                            fontSize: 12, 
+                            color: Colors.red.shade700,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
-          // 1. БЛОК ТЕЛЕМЕТРІЇ (Винесено в окремий віджет)
+          // 2. БЛОК ТЕЛЕМЕТРІЇ (Показники датчиків/температур)
           TelemetryInfoBlock(telemetry: telemetry),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           const Divider(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          // 2. КЕРУВАННЯ СЛОТАМИ КОТУШОК
+          // 3. КЕРУВАННЯ СЛОТАМИ КОТУШОК
           const Text(
             'Слоти котушок',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 10),
 
-          // Динамічний список слотів (Використовує виділений PrinterSlotCard)
-          Expanded(
-            child: ListView.builder(
-              itemCount: printer.slotsCount,
-              itemBuilder: (context, index) {
-                return PrinterSlotCard(
-                  printer: printer,
-                  slotIndex: index,
-                );
-              },
+          // Генерація слотів філаменту
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(
+              printer.slotsCount,
+              (index) => PrinterSlotCard(
+                printer: printer,
+                slotIndex: index,
+              ),
             ),
           ),
 
-          const SizedBox(height: 8),
-          // Мережевий підвал
+          const SizedBox(height: 12),
           Center(
             child: Text(
               'Мережа: ${printer.ipAddress}:${printer.port}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
             ),
           ),
         ],

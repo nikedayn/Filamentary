@@ -3,7 +3,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:qr_code_tools/qr_code_tools.dart';
+// ФІКС: Імпортуємо сучасний mobile_scanner замість померлого qr_code_tools
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:filamentary/features/printers/domain/models/app_printer.dart';
 import '../printer_detail_bloc.dart';
 import 'material_select_dialog.dart';
@@ -30,11 +31,11 @@ class PrinterSlotCard extends StatelessWidget {
     final bool isAssigned = assignedMaterialId != null && assignedMaterialId.isNotEmpty;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.blueGrey.shade50.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.blueGrey.shade50.withAlpha(125),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.blueGrey.shade100),
       ),
       child: Column(
@@ -45,53 +46,50 @@ class PrinterSlotCard extends StatelessWidget {
               Icon(
                 Icons.circle, 
                 color: isAssigned ? Colors.green.shade600 : Colors.grey.shade400, 
-                size: 12
+                size: 10
               ),
               const SizedBox(width: 8),
               Text(
                 'Слот #${slotIndex + 1}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           if (isAssigned) ...[
             Text(
               'Заправлено (ID: ${assignedMaterialId.length > 8 ? assignedMaterialId.substring(0, 8) : assignedMaterialId}...)',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Матеріал активний',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ] else ...[
             Text(
               'Не заправлено',
               style: TextStyle(
-                fontSize: 13, 
+                fontSize: 12, 
                 fontStyle: FontStyle.italic, 
                 color: Colors.grey.shade600,
               ),
             ),
           ],
           
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           
           Row(
             children: [
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: () => _handleQRScan(context),
-                  icon: const Icon(Icons.qr_code_scanner, size: 16),
-                  label: const Text('QR-код', style: TextStyle(fontSize: 11)),
+                  icon: const Icon(Icons.qr_code_scanner, size: 14),
+                  label: const Text('QR-код', style: TextStyle(fontSize: 10)),
                   style: ElevatedButton.styleFrom(
                     elevation: 0,
                     backgroundColor: Colors.blueGrey.shade100,
                     foregroundColor: Colors.blueGrey.shade800,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                 ),
               ),
@@ -99,13 +97,13 @@ class PrinterSlotCard extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => _handleManualSelect(context),
-                  icon: const Icon(Icons.list, size: 16),
-                  label: const Text('Вибрати', style: TextStyle(fontSize: 11)),
+                  icon: const Icon(Icons.list, size: 14),
+                  label: const Text('Вибрати', style: TextStyle(fontSize: 10)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.blue.shade800,
                     side: BorderSide(color: Colors.blue.shade200),
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                 ),
               ),
@@ -146,6 +144,7 @@ class PrinterSlotCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Row(
           children: [
             Icon(Icons.qr_code_2, color: Colors.blueGrey.shade700),
@@ -175,46 +174,60 @@ class PrinterSlotCard extends StatelessWidget {
           ),
           ElevatedButton.icon(
             icon: const Icon(Icons.folder_open),
-            label: const Text('Обрати photo з QR'),
+            label: const Text('Обрати фото з QR'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
             onPressed: () async {
               Navigator.pop(dialogContext);
               
               try {
-                final FilePickerResult? result = await FilePicker.pickFiles(
+                // 1. Обираємо файл через FilePicker
+                final FilePickerResult? result = await FilePicker.platform.pickFiles(
                   type: FileType.image,
                   allowMultiple: false,
                 );
 
                 if (result == null || result.files.single.path == null) return;
-
                 final String filePath = result.files.single.path!;
-                final String? decodedId = await QrCodeToolsPlugin.decodeFrom(filePath);
 
-                if (decodedId != null && decodedId.isNotEmpty) {
-                  if (context.mounted) {
-                    context.read<PrinterDetailBloc>().add(
-                      ChangeSlotMaterialEvent(
-                        printerId: printer.id,
-                        slotIndex: slotIndex + 1,
-                        materialId: decodedId,
-                      ),
-                    );
+                // 2. ФІКС UI/БІЛДУ: Використовуємо нативний аналізатор mobile_scanner для картинок
+                final MobileScannerController scannerController = MobileScannerController();
+                final BarcodeCapture? capture = await scannerController.analyzeImage(filePath);
+                
+                // Звільняємо ресурси контролера сканера
+                scannerController.dispose();
 
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('QR-код успішно розпізнано! Слот #${slotIndex + 1} заправлено.'),
-                        backgroundColor: Colors.green.shade700,
-                      ),
-                    );
+                if (capture != null && capture.barcodes.isNotEmpty) {
+                  final String? decodedId = capture.barcodes.first.rawValue;
+
+                  if (decodedId != null && decodedId.isNotEmpty) {
+                    if (context.mounted) {
+                      context.read<PrinterDetailBloc>().add(
+                        ChangeSlotMaterialEvent(
+                          printerId: printer.id,
+                          slotIndex: slotIndex + 1,
+                          materialId: decodedId,
+                        ),
+                      );
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('QR-код успішно розпізнано! Слот #${slotIndex + 1} заправлено.'),
+                          backgroundColor: Colors.green.shade700,
+                        ),
+                      );
+                    }
+                    return;
                   }
-                } else {
-                  throw Exception('Код порожній');
                 }
-              } catch (e) {
+                
+                // Якщо capture порожній або коду немає — кидаємо виняток для блоку catch
+                throw Exception('QR code not found on image');
+
+              } catch (_) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -232,13 +245,30 @@ class PrinterSlotCard extends StatelessWidget {
   }
 
   void _handleManualSelect(BuildContext context) async {
-    final String? selectedMaterialId = await showDialog<String?>(
-      context: context,
-      builder: (context) => const MaterialSelectDialog(),
-    );
+    final printersBloc = context.read<PrinterDetailBloc>();
+    final double screenWidth = MediaQuery.of(context).size.width;
+    String? selectedMaterialId;
+
+    if (screenWidth < 600) {
+      // НА ТЕЛЕФОНІ: Зручна нижня шторка без будь-яких оверфлоу
+      selectedMaterialId = await showModalBottomSheet<String?>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => const MaterialSelectDialog(),
+      );
+    } else {
+      // НА ДЕСКТОПІ/ПК: Акуратне діалогове вікно
+      selectedMaterialId = await showDialog<String?>(
+        context: context,
+        builder: (context) => const MaterialSelectDialog(),
+      );
+    }
 
     if (selectedMaterialId == null) return;
-
     final String? targetId = selectedMaterialId.isEmpty ? null : selectedMaterialId;
 
     if (context.mounted) {

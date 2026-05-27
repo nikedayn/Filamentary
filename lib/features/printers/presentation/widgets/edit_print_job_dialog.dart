@@ -186,7 +186,7 @@ class _EditPrintJobDialogState extends State<EditPrintJobDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _status,
+                        initialValue: _status,
                         decoration: const InputDecoration(labelText: 'Статус', border: OutlineInputBorder()),
                         items: ['Успішно', 'Скасовано', 'Збій'].map((s) {
                           return DropdownMenuItem(value: s, child: Text(s));

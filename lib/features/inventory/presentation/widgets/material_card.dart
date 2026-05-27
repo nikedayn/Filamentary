@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:filamentary/features/inventory/domain/models/filament_material.dart'; // КРИТИЧНИЙ ІМПОРТ: чиста бізнес-модель
+import 'package:filamentary/features/inventory/domain/models/filament_material.dart';
 
 class MaterialGridCard extends StatelessWidget {
-  final List<FilamentMaterial> items; // ФІКС: Працюємо виключно з FilamentMaterial
+  final List<FilamentMaterial> items;
   final VoidCallback onTap;
 
   const MaterialGridCard({
@@ -18,91 +18,117 @@ class MaterialGridCard extends StatelessWidget {
 
     for (var item in items) {
       totalInitial += item.initialWeight;
-      totalRemaining += item.currentWeight; 
+      totalRemaining += item.currentWeight;
     }
 
     final double progress = totalInitial > 0 ? (totalRemaining / totalInitial).clamp(0.0, 1.0) : 0.0;
-
     final firstItem = items.first;
     final String? imageUrl = firstItem.imageUrl;
 
     return Card(
-      elevation: 2, // Трохи зменшили тінь для компактного вигляду
+      elevation: 2,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), // Зменшили радіус з 16 до 12
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
-        hoverColor: Colors.blueGrey.withValues(alpha: 0.05),
+        hoverColor: Colors.blueGrey.withAlpha(12),
         child: Padding(
-          padding: const EdgeInsets.all(12.0), // ЗМЕНШЕНО: Падінг з 16 до 12 робить картку значно компактнішою
+          padding: const EdgeInsets.all(10.0), // Оптимізовані відступи
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // 1. БЛОК ЗОБРАЖЕННЯ
+              // 1. БЛОК ЗОБРАЖЕННЯ (Тепер повністю адаптивний)
               Expanded(
-                child: AspectRatio(
-                  aspectRatio: 1.0, 
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(8), // Зменшено з 12 до 8
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: imageUrl != null && imageUrl.isNotEmpty
-                          ? Image.network(
-                              imageUrl,
-                              fit: BoxFit.cover,
-                              filterQuality: FilterQuality.high, 
-                              errorBuilder: (_, _, _) => const Icon(Icons.broken_image, size: 36, color: Colors.grey),
-                            )
-                          : const Center(
-                              child: Icon(Icons.layers, size: 48, color: Colors.blueGrey), // Зменшено розмір іконки плейсхолдера
-                            ),
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 1.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withAlpha(10),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: imageUrl != null && imageUrl.isNotEmpty
+                            ? Image.network(
+                                imageUrl,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.high,
+                                errorBuilder: (_, _, _) => const Icon(
+                                  Icons.broken_image,
+                                  size: 28,
+                                  color: Colors.grey,
+                                ),
+                              )
+                            : const Center(
+                                child: Icon(
+                                  Icons.layers,
+                                  size: 36,
+                                  color: Colors.blueGrey,
+                                ),
+                              ),
+                      ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 8), // Зменшено відступ з 12 до 8
-              
-              // 2. ІНФОРМАЦІЙНИЙ БЛОК (Пропорційно зменшені шрифти)
-              Text(
-                '${firstItem.manufacturer} ${firstItem.type}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), // Зменшено з 16 до 14
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 6),
+
+              // 2. ІНФОРМАЦІЙНИЙ БЛОК із захистом від Overflow
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${firstItem.manufacturer} ${firstItem.type}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  maxLines: 1,
+                ),
               ),
+              const SizedBox(height: 1),
               Text(
                 '${firstItem.color} (${firstItem.diameter})',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12), // Зменшено з 14 до 12
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6), // Зменшено з 8 до 6
-              
+              const SizedBox(height: 4),
+
+              // Рядок К-сті та Ваги
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'К-сть: ${items.length} шт',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueGrey), // Зменшено з 12 до 11
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey,
+                    ),
                   ),
-                  Text(
-                    '${totalRemaining.toStringAsFixed(0)}г залишок',
-                    style: TextStyle(
-                      fontSize: 11, // Зменшено з 12 до 11
-                      fontWeight: FontWeight.w600,
-                      color: progress < 0.2 ? Colors.red : Colors.black87,
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '${totalRemaining.toStringAsFixed(0)}г зал.',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: progress < 0.2 ? Colors.red : Colors.black87,
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4), // Зменшено з 6 до 4
+              const SizedBox(height: 4),
+              
+              // Лінійка прогресу
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   value: progress,
-                  minHeight: 4, // ЗМЕНШЕНО: Товщина лінії прогресу з 6 до 4 для витонченості
+                  minHeight: 3.5,
                   backgroundColor: Colors.grey.shade200,
                   color: progress < 0.2 ? Colors.red : Colors.blueGrey.shade600,
                 ),

@@ -14,7 +14,7 @@ class TelemetryInfoBlock extends StatelessWidget {
         _buildTelemetryRow(
           icon: Icons.thermostat_outlined,
           label: 'Екструдер:',
-          value: '${telemetry.extruderTemp.toStringAsFixed(1)} / ${telemetry.extruderTarget.toStringAsFixed(0)} °C',
+          value: '${telemetry.extruderTemp.toStringAsFixed(1).replaceAll('.', ',')} / ${telemetry.extruderTarget.toStringAsFixed(0)} °C',
         ),
         const SizedBox(height: 12),
         _buildTelemetryRow(

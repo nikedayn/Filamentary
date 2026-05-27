@@ -18,20 +18,47 @@ class AddManualPrintFab extends StatelessWidget {
       icon: const Icon(Icons.add_chart_outlined),
       label: const Text('Додати друк вручну'),
       onPressed: () async {
-        final Map<String, dynamic>? printData = await showDialog<Map<String, dynamic>?>(
-          context: context,
-          builder: (context) => ManualPrintDialog(printer: printer),
-        );
+        // КРИТИЧНИЙ ФІКС: Заздалегідь зберігаємо посилання на Блок у потоку контексту.
+        // Це гарантує, що подія не загубиться при переході між контекстами шторки/діалогу!
+        final detailBloc = context.read<PrinterDetailBloc>();
+        final double screenWidth = MediaQuery.of(context).size.width;
+        
+        Map<String, dynamic>? printData;
+
+        if (screenWidth < 600) {
+          // НА ТЕЛЕФОНІ: Відкриваємо як ергономічну нижню шторку (BottomSheet)
+          printData = await showModalBottomSheet<Map<String, dynamic>?>(
+            context: context,
+            isScrollControlled: true, // Дозволяє формі адаптуватися під клавіатуру
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            builder: (context) => ManualPrintDialog(printer: printer),
+          );
+        } else {
+          // НА ДЕСКТОПІ/ПК: Залишаємо класичний акуратний діалог
+          printData = await showDialog<Map<String, dynamic>?>(
+            context: context,
+            builder: (context) => Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              clipBehavior: Clip.antiAlias,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: ManualPrintDialog(printer: printer),
+              ),
+            ),
+          );
+        }
 
         if (printData == null) return;
 
+        // Використовуємо збережене посилання на Блок
+        detailBloc.add(
+          AddManualPrintJobEvent(printData: printData),
+        );
+        
         if (context.mounted) {
-          // СИНТАКСИЧНИЙ ФІКС: Подія AddManualPrintJobEvent тепер правильно 
-          // передається всередину методу .add() твого Блоку!
-          context.read<PrinterDetailBloc>().add(
-            AddManualPrintJobEvent(printData: printData),
-          );
-          
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Операцію друку успішно додано до історії!'),
