@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
-// ФІКС: Імпортуємо сучасний mobile_scanner замість померлого qr_code_tools
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:filamentary/features/printers/domain/models/app_printer.dart';
 import '../printer_detail_bloc.dart';
@@ -12,7 +11,7 @@ import 'qr_scanner_sheet.dart';
 
 class PrinterSlotCard extends StatelessWidget {
   final AppPrinter printer;
-  final int slotIndex;
+  final int slotIndex; // Індекс від 0 до N (чистий індекс масиву)
 
   const PrinterSlotCard({
     super.key,
@@ -130,10 +129,11 @@ class PrinterSlotCard extends StatelessWidget {
     if (scannedMaterialId == null || scannedMaterialId.isEmpty) return;
 
     if (context.mounted) {
+      // АРХІТЕКТУРНИЙ ФІКС: Передаємо чистий slotIndex без модифікацій +1
       context.read<PrinterDetailBloc>().add(
         ChangeSlotMaterialEvent(
           printerId: printer.id,
-          slotIndex: slotIndex + 1,
+          slotIndex: slotIndex,
           materialId: scannedMaterialId,
         ),
       );
@@ -174,7 +174,7 @@ class PrinterSlotCard extends StatelessWidget {
           ),
           ElevatedButton.icon(
             icon: const Icon(Icons.folder_open),
-            label: const Text('Обрати фото з QR'),
+            label: const Text('Обрати photo з QR'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
@@ -184,7 +184,6 @@ class PrinterSlotCard extends StatelessWidget {
               Navigator.pop(dialogContext);
               
               try {
-                // 1. Обираємо файл через FilePicker
                 final FilePickerResult? result = await FilePicker.platform.pickFiles(
                   type: FileType.image,
                   allowMultiple: false,
@@ -193,11 +192,9 @@ class PrinterSlotCard extends StatelessWidget {
                 if (result == null || result.files.single.path == null) return;
                 final String filePath = result.files.single.path!;
 
-                // 2. ФІКС UI/БІЛДУ: Використовуємо нативний аналізатор mobile_scanner для картинок
                 final MobileScannerController scannerController = MobileScannerController();
                 final BarcodeCapture? capture = await scannerController.analyzeImage(filePath);
                 
-                // Звільняємо ресурси контролера сканера
                 scannerController.dispose();
 
                 if (capture != null && capture.barcodes.isNotEmpty) {
@@ -205,10 +202,11 @@ class PrinterSlotCard extends StatelessWidget {
 
                   if (decodedId != null && decodedId.isNotEmpty) {
                     if (context.mounted) {
+                      // АРХІТЕКТУРНИЙ ФІКС: Передаємо чистий slotIndex без модифікацій +1
                       context.read<PrinterDetailBloc>().add(
                         ChangeSlotMaterialEvent(
                           printerId: printer.id,
-                          slotIndex: slotIndex + 1,
+                          slotIndex: slotIndex,
                           materialId: decodedId,
                         ),
                       );
@@ -224,7 +222,6 @@ class PrinterSlotCard extends StatelessWidget {
                   }
                 }
                 
-                // Якщо capture порожній або коду немає — кидаємо виняток для блоку catch
                 throw Exception('QR code not found on image');
 
               } catch (_) {
@@ -245,12 +242,10 @@ class PrinterSlotCard extends StatelessWidget {
   }
 
   void _handleManualSelect(BuildContext context) async {
-    final printersBloc = context.read<PrinterDetailBloc>();
     final double screenWidth = MediaQuery.of(context).size.width;
     String? selectedMaterialId;
 
     if (screenWidth < 600) {
-      // НА ТЕЛЕФОНІ: Зручна нижня шторка без будь-яких оверфлоу
       selectedMaterialId = await showModalBottomSheet<String?>(
         context: context,
         isScrollControlled: true,
@@ -261,7 +256,6 @@ class PrinterSlotCard extends StatelessWidget {
         builder: (context) => const MaterialSelectDialog(),
       );
     } else {
-      // НА ДЕСКТОПІ/ПК: Акуратне діалогове вікно
       selectedMaterialId = await showDialog<String?>(
         context: context,
         builder: (context) => const MaterialSelectDialog(),
@@ -272,10 +266,11 @@ class PrinterSlotCard extends StatelessWidget {
     final String? targetId = selectedMaterialId.isEmpty ? null : selectedMaterialId;
 
     if (context.mounted) {
+      // АРХІТЕКТУРНИЙ ФІКС: Передаємо чистий slotIndex без модифікацій +1
       context.read<PrinterDetailBloc>().add(
         ChangeSlotMaterialEvent(
           printerId: printer.id,
-          slotIndex: slotIndex + 1,
+          slotIndex: slotIndex,
           materialId: targetId,
         ),
       );

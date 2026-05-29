@@ -1,10 +1,8 @@
-import 'package:equatable/equatable.dart';
-
 /// Уніфіковані стани принтера відповідно до ТЗ
 enum PrinterState { printing, paused, standby, error, offline }
 
 /// Чиста бізнес-модель телеметрії, яка замінює хаотичні Map<String, dynamic>
-class PrinterTelemetry extends Equatable {
+class PrinterTelemetry {
   final bool isOnline;
   final PrinterState state;
   final String filename;
@@ -13,47 +11,40 @@ class PrinterTelemetry extends Equatable {
   final double bedTemp;
   final double bedTarget;
   final double progress;
-  final String? errorMessage; // 👈 ДОДАНО: Поле для діагностики помилок мережі
+  
+  // Додаткові службові поля для автоматичного списання інвентаря (п. 3.1 ТЗ)
+  final double filamentWeightTotal; // Вага пластику, що потрібна на модель
+  final int totalPrintTime;         // Поточна тривалість друку в секундах
+  final String errorMessage;        // Відображення текстового опису помилок сокетів/таймаутів
 
   const PrinterTelemetry({
     required this.isOnline,
     required this.state,
-    this.filename = '',         // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.extruderTemp = 0.0,    // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.extruderTarget = 0.0,  // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.bedTemp = 0.0,         // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.bedTarget = 0.0,       // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.progress = 0.0,        // 👈 РОБИМО ОПЦІОНАЛЬНИМ З ДЕФОЛТОМ
-    this.errorMessage,          // 👈 ОПЦІОНАЛЬНЕ ПОЛЕ ПOМИЛКИ
+    required this.filename,
+    required this.extruderTemp,
+    required this.extruderTarget,
+    required this.bedTemp,
+    required this.bedTarget,
+    required this.progress,
+    this.filamentWeightTotal = 0.0,
+    this.totalPrintTime = 0,
+    this.errorMessage = '',
   });
 
   /// Стан за замовчуванням, якщо принтер вимкнений або недоступний
-  factory PrinterTelemetry.offline([String? message]) {
+  factory PrinterTelemetry.offline([String message = '']) {
     return PrinterTelemetry(
       isOnline: false,
       state: PrinterState.offline,
       filename: '',
-      extruderTemp: 0,
-      extruderTarget: 0,
-      bedTemp: 0,
-      bedTarget: 0,
-      progress: 0,
-      errorMessage: message, // 👈 ПЕРЕДАЄМО ПОВІДОМЛЕННЯ В КАРТКУ ПОМИЛКИ
+      extruderTemp: 0.0,
+      extruderTarget: 0.0,
+      bedTemp: 0.0,
+      bedTarget: 0.0,
+      progress: 0.0,
+      errorMessage: message,
     );
   }
-
-  @override
-  List<Object?> get props => [
-        isOnline,
-        state,
-        filename,
-        extruderTemp,
-        extruderTarget,
-        bedTemp,
-        bedTarget,
-        progress,
-        errorMessage, // 👈 ДОДАНО ДЛЯ ПРАВИЛЬНОГО ПОРІВНЯННЯ СТАНІВ В BLOC
-      ];
 }
 
 /// Спільний архітектурний контракт для всіх майбутніх інтеграцій принтерів

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
 import 'printer_client_interface.dart';
@@ -5,10 +6,9 @@ import 'printer_client_interface.dart';
 @Named("KlipperClient")
 @lazySingleton
 class KlipperClient implements PrinterClient {
-  // Використовуємо Dio з ТЗ з надійними таймаутами для запобігання фризів UI
   final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 1),
-    receiveTimeout: const Duration(seconds: 1),
+    connectTimeout: const Duration(seconds: 2),
+    receiveTimeout: const Duration(seconds: 2),
   ));
 
   @override
@@ -29,35 +29,29 @@ class KlipperClient implements PrinterClient {
           'extruder': 'temperature,target',
           'heater_bed': 'temperature,target',
           'print_stats': 'filename,total_duration,print_duration,state',
-          'virtual_sdcard': 'progress', // Беремо прогрес напряму з Moonraker (він там від 0.0 до 1.0)
+          'virtual_sdcard': 'progress',
         },
         options: Options(headers: headers),
-      ).timeout(const Duration(seconds: 2));
+      );
 
       if (response.statusCode != 200 || response.data?['result']?['status'] == null) {
-        return PrinterTelemetry.offline();
+        return PrinterTelemetry.offline('Moonraker повернув некоректний статус сервера: ${response.statusCode}');
       }
 
       final status = response.data['result']['status'];
       
-      // 1. Парсимо температури з безпечним приведенням типів (ТЗ)
       final double extruderTemp = (status['extruder']?['temperature'] as num?)?.toDouble() ?? 0.0;
       final double extruderTarget = (status['extruder']?['target'] as num?)?.toDouble() ?? 0.0;
       final double bedTemp = (status['heater_bed']?['temperature'] as num?)?.toDouble() ?? 0.0;
       final double bedTarget = (status['heater_bed']?['target'] as num?)?.toDouble() ?? 0.0;
 
-      // 2. Парсимо стан друку
       final String rawState = status['print_stats']?['state'] ?? 'standby';
       final PrinterState appState = _parseState(rawState);
 
-      // 3. БЕЗПЕЧНИЙ РОЗРАХУНОК ПРОГРЕСУ (Захист від ділення на нуль та Infinity)
       double progress = 0.0;
-      
-      // Спершу пробуємо отримати точний готовий прогрес від Moonraker virtual_sdcard
       if (status['virtual_sdcard']?['progress'] != null) {
         progress = (status['virtual_sdcard']['progress'] as num).toDouble();
       } else {
-        // Резервний математичний прорахунок за часом з жорсткою валідацією знаменника
         final totalDuration = (status['print_stats']?['total_duration'] as num?)?.toDouble() ?? 0.0;
         final printDuration = (status['print_stats']?['print_duration'] as num?)?.toDouble() ?? 0.0;
         
@@ -66,8 +60,6 @@ class KlipperClient implements PrinterClient {
         }
       }
 
-      // Захисний механізм: прогрес у системі Filamentary має бути строго в межах від 0.0 до 1.0,
-      // жодних NaN або Infinity не пройде у UI шар!
       if (progress.isNaN || progress.isInfinite) {
         progress = 0.0;
       } else {
@@ -84,12 +76,23 @@ class KlipperClient implements PrinterClient {
         extruderTarget: extruderTarget,
         bedTemp: bedTemp,
         bedTarget: bedTarget,
-        progress: progress, // Прогрес тепер залізобетонно безпечний
+        progress: progress,
+        errorMessage: '', // З'єднання успішне, помилок немає
       );
 
-    } catch (_) {
-      // Будь-який таймаут або обрив сокетів повертає чистий офлайн об'єкт без падіння потоку
-      return PrinterTelemetry.offline();
+    } on DioException catch (e) {
+      // Розумне розпізнавання помилок виключно для Klipper екосистеми
+      String msg = 'Помилка мережі Klipper: ';
+      if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
+        msg += 'Таймаут з\'єднання! Перевірте, чи увімкнено принтер.';
+      } else if (e.error is SocketException) {
+        msg += 'Пристрій недоступний. Перевірте IP $ip та порт $port.';
+      } else {
+        msg += e.message ?? 'Невідомий збій Dio сокета.';
+      }
+      return PrinterTelemetry.offline(msg);
+    } catch (e) {
+      return PrinterTelemetry.offline('Системна помилка підключення: $e');
     }
   }
 

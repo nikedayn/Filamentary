@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:filamentary/features/printers/domain/models/app_printer.dart';
 import 'package:filamentary/core/network/printer_client_interface.dart';
@@ -24,8 +25,8 @@ class PrinterTelemetryPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 1. ДІАГНОСТИКА ПОМИЛКИ: Якщо принтер офлайн і є текст помилки — показуємо картку попередження
-          if (!telemetry.isOnline && telemetry.errorMessage != null) ...[
+          // 1. ДІАГНОСТИКА ПОМИЛКИ: Чистий динамічний заголовок замість хардкоду
+          if (!telemetry.isOnline && telemetry.errorMessage.isNotEmpty) ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12.0),
@@ -44,7 +45,8 @@ class PrinterTelemetryPanel extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Помилка підключення до Bambu',
+                          // АРХІТЕКТУРНИЙ ФІКС: Текст підлаштовується під виробника принтера автоматично
+                          'Помилка підключення до ${printer.manufacturer}',
                           style: TextStyle(
                             fontSize: 13, 
                             fontWeight: FontWeight.bold, 
@@ -53,7 +55,7 @@ class PrinterTelemetryPanel extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          telemetry.errorMessage!,
+                          telemetry.errorMessage,
                           style: TextStyle(
                             fontSize: 12, 
                             color: Colors.red.shade700,

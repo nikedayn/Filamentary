@@ -3,8 +3,13 @@ import 'package:filamentary/core/network/printer_client_interface.dart';
 
 class PrinterStatusBadge extends StatelessWidget {
   final PrinterState state; 
+  final String? errorMessage; // 👈 Обов'язкове поле для відображення детального тексту помилки
 
-  const PrinterStatusBadge({super.key, required this.state});
+  const PrinterStatusBadge({
+    super.key, 
+    required this.state,
+    this.errorMessage, // 👈 Іменований параметр чітко задекларовано в конструкторі
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -40,26 +45,30 @@ class PrinterStatusBadge extends StatelessWidget {
         break;
     }
 
-    return Container(
-      // Збільшуємо горизонтальний падінг для правильної форми капсули
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        // ЧІТКИЙ UI ФІКС: Повне закруглення з усіх боків (форма стадіону)
-        borderRadius: BorderRadius.circular(10),
-        // Легкий нативний бордер для виразності на фоні світлого AppBar
-        border: Border.all(
-          color: textColor.withValues(alpha: 0.15),
-          width: 1,
+    final bool hasTooltip = errorMessage != null && errorMessage!.isNotEmpty;
+
+    return Tooltip(
+      message: hasTooltip ? errorMessage! : 'Статус: $text',
+      preferBelow: true,
+      triggerMode: TooltipTriggerMode.tap, 
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: textColor.withValues(alpha: 0.15),
+            width: 1,
+          ),
         ),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: textColor, 
-          fontWeight: FontWeight.bold, 
-          fontSize: 12, // Трохи збільшили для десктопного монітора
-          letterSpacing: 0.3,
+        child: Text(
+          text,
+          style: TextStyle(
+            color: textColor, 
+            fontWeight: FontWeight.bold, 
+            fontSize: 12, 
+            letterSpacing: 0.3,
+          ),
         ),
       ),
     );

@@ -1,17 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:injectable/injectable.dart';
 import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart' as drift;
 import 'package:filamentary/core/database/database.dart' as db;
 import 'package:filamentary/features/printers/data/printers_repository.dart'; 
 import 'package:filamentary/features/printers/domain/models/app_printer.dart'; 
 import 'package:filamentary/core/network/printer_client_interface.dart'; 
 import 'package:filamentary/core/network/klipper_client.dart'; 
 import 'package:filamentary/core/network/bambu_client.dart'; 
-import 'package:drift/drift.dart' as drift;
 import 'package:filamentary/core/constants/app_constants.dart'; 
 import 'package:filamentary/core/di/injection.dart'; 
 
@@ -28,7 +27,6 @@ class PrintersLoading extends PrintersState {}
 
 class PrintersLoaded extends PrintersState {
   final List<AppPrinter> printers;
-  // ФІКС 1: Зберігаємо повну телеметрію (разом із текстом помилок), а не тільки статус
   final Map<String, PrinterTelemetry> telemetryMap; 
 
   const PrintersLoaded(this.printers, {this.telemetryMap = const {}});
@@ -65,7 +63,6 @@ abstract class PrintersEvent extends Equatable {
 
 class WatchPrintersEvent extends PrintersEvent {}
 
-// ФІКС 2: Подiя тепер переносить повнi об'єкти телеметрiї
 class UpdatePrintersTelemetryEvent extends PrintersEvent {
   final Map<String, PrinterTelemetry> telemetryMap;
   const UpdatePrintersTelemetryEvent(this.telemetryMap);
@@ -106,7 +103,7 @@ class DeletePrinterEvent extends PrintersEvent {
 }
 
 // ==========================================
-// БІЗНЕС-ЛОГІКА (BLOC)
+// БІЗНЕС-ЛОГІКА (BLOC IMPLEMENTATION)
 // ==========================================
 @injectable
 class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
@@ -116,9 +113,13 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
   
   Timer? _pollingTimer;
   List<AppPrinter> _currentPrintersCache = [];
+  
+  // ФІКС ПОМИЛКИ: Кеш тепер зберігає строгий енам PrinterState замість динамічних Strings
+  final Map<String, PrinterState> _lastStateCache = {};
 
   PrintersBloc(this._printersRepository, this._db) : super(PrintersLoading()) {
     
+    // 1. РЕАКТИВНИЙ СТРІМ СПИСКУ ПРИНТЕРІВ З БАЗИ ДАНИХ
     on<WatchPrintersEvent>((event, emit) async {
       _startTelemetryPolling();
 
@@ -135,6 +136,7 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
       );
     });
 
+    // 2. ОНОВЛЕННЯ КАРТИ ТЕЛЕМЕТРІЇ ПРИНТЕРІВ
     on<UpdatePrintersTelemetryEvent>((event, emit) {
       if (state is PrintersLoaded) {
         final currentState = state as PrintersLoaded;
@@ -142,6 +144,7 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
       }
     });
 
+    // 3. ДОДАВАННЯ НОВОГО ПРИНТЕРА З ПЕРВИННИМ ЛОГУВАННЯМ
     on<AddPrinterEvent>((event, emit) async {
       try {
         final String printerId = _uuid.v4();
@@ -160,11 +163,13 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
           activeSlotsJson: const drift.Value('{}'), 
           version: const drift.Value(1),
           timestamp: drift.Value(DateTime.now()),
+          isDeleted: const drift.Value(false),
         );
         await _db.insertPrinterWithLog(companion, transactionId);
       } catch (_) {}
     });
 
+    // 4. ОНОВЛЕННЯ ДАНИХ ПРИНТЕРА (МАТЕМАТИЧНА ВЕРСІЙНІСТЬ П. 4 ТЗ)
     on<UpdatePrinterEvent>((event, emit) async {
       try {
         final String transactionId = _uuid.v4();
@@ -186,7 +191,7 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
           activeSlotsJson: activeSlotsJson,
           imageUrl: event.printer.imageUrl,
           isDeleted: false,
-          version: event.printer.version, 
+          version: event.printer.version + 1, // Інкремент версії об'єкта
           timestamp: DateTime.now(),
         );
         await _db.updatePrinter(driftPrinter, transactionId);
@@ -195,22 +200,25 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
       }
     });
 
+    // 5. М'ЯКЕ ВІДПОВІДНЕ ВИДАЛЕННЯ ПРИНТЕРА
     on<DeletePrinterEvent>((event, emit) async {
       try {
         final String transactionId = _uuid.v4();
+        _lastStateCache.remove(event.printerId);
         await _db.softDeletePrinter(event.printerId, transactionId);
       } catch (_) {}
     });
   }
 
-  // МЕТОД ФОНОВОГО ОПИТУВАННЯ МЕРЕЖІ
+  // ==========================================================
+  // ПЕТЛЯ ФОНОГО ПОЛІНГУ МЕРЕЖІ ТА АВТО-ФІКСАЦІЇ ДРУКУ KLIPPER
+  // ==========================================================
   void _startTelemetryPolling() {
     _pollingTimer?.cancel();
     
     _pollingTimer = Timer.periodic(AppConstants.printerPollingInterval, (timer) async {
       if (_currentPrintersCache.isEmpty) return;
 
-      // ФІКС 3: Мапа тепер збирає об'єкти PrinterTelemetry повністю
       final Map<String, PrinterTelemetry> updatedTelemetry = {};
 
       await Future.wait(
@@ -234,10 +242,23 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
               );
             }
 
-            // Зберігаємо об'єкт цілком (зі статусом Квітка/Друк і повідомленням про помилку)
             updatedTelemetry[printer.id] = telemetry;
+
+            // --------------------------------------------------------
+            // АВТОМАТИЧНА ФІКСАЦІЯ ЗАВЕРШЕНОГО ДРУКУ (Пункт 3.1 ТЗ)
+            // --------------------------------------------------------
+            final PrinterState? oldState = _lastStateCache[printer.id];
+
+            // ФІКС ПОМИЛКИ: Перевіряємо перехід станів за допомогою строгого енаму
+            if (oldState == PrinterState.printing && telemetry.state == PrinterState.standby) {
+              await _processAutomaticKlipperWriteOff(printer, telemetry);
+            }
+
+            // Зберігаємо поточний стан в кеш
+            _lastStateCache[printer.id] = telemetry.state;
+
           } catch (e) {
-            // ФІКС 4: Якщо сталася системна помилка у самому Блоці — прокидаємо її опис
+            _lastStateCache[printer.id] = PrinterState.offline;
             updatedTelemetry[printer.id] = PrinterTelemetry.offline('Системна помилка Блоку: $e');
           }
         }),
@@ -247,6 +268,65 @@ class PrintersBloc extends Bloc<PrintersEvent, PrintersState> {
         add(UpdatePrintersTelemetryEvent(updatedTelemetry));
       }
     });
+  }
+
+  // ==========================================================
+  // ВНУТРІШНІЙ МЕТОД АВТО-СПИСАННЯ ЧЕРЕЗ РЕГІСТРАТОР БАЗЫ ДАНИХ
+  // ==========================================================
+  Future<void> _processAutomaticKlipperWriteOff(AppPrinter printer, PrinterTelemetry telemetry) async {
+    try {
+      String? targetMaterialId;
+
+      // 1. Скануємо слоти принтера з валідацією наявності QR-коду в реальній локальній базі матеріалів
+      for (var slot in printer.slots) {
+        if (slot.linkedMaterialId != null && slot.linkedMaterialId!.isNotEmpty) {
+          
+          final localMaterial = await (_db.select(_db.materials)
+                ..where((tbl) => tbl.id.equals(slot.linkedMaterialId!)))
+              .getSingleOrNull();
+
+          // Якщо котушка є валідною в нашому інвентарі, вибираємо її для списання пластику
+          if (localMaterial != null && !localMaterial.isDeleted) {
+            targetMaterialId = slot.linkedMaterialId;
+            break; 
+          }
+        }
+      }
+
+      // Захист від примарних QR-кодів: якщо котушка відсутня в інвентарі, автозапис блокується
+      if (targetMaterialId == null) return;
+
+      // 2. Валідуємо вагу філаменту, отриману з метаданих Moonraker API
+      final double consumedWeight = telemetry.filamentWeightTotal > 0 ? telemetry.filamentWeightTotal : 0.0;
+      if (consumedWeight <= 0) return; 
+
+      final String printJobId = _uuid.v4();
+      final String transactionId = _uuid.v4();
+      
+      final List<Map<String, dynamic>> materialsLogStructure = [
+        {
+          'slotIndex': 1,
+          'materialId': targetMaterialId,
+          'spentWeight': consumedWeight,
+        }
+      ];
+
+      // 3. АРХІТЕКТУРНИЙ ФІКС: Замість роздутого коду використовуємо наш єдиний чистий метод бд
+      await _db.registerPrintJobInDatabase(
+        id: printJobId,
+        printerId: printer.id,
+        modelName: telemetry.filename.isNotEmpty ? telemetry.filename : 'Klipper_Auto_Print.gcode',
+        status: 'Успішно',
+        spentWeight: consumedWeight,
+        usedMaterialsLogJson: jsonEncode(materialsLogStructure),
+        startTime: DateTime.now().subtract(Duration(seconds: telemetry.totalPrintTime > 0 ? telemetry.totalPrintTime : 60)),
+        duration: telemetry.totalPrintTime > 0 ? telemetry.totalPrintTime : 60,
+        transactionId: transactionId,
+      );
+
+    } catch (_) {
+      // Будь-яка помилка безпечно перехоплюється, Drift гарантує атомарність транзакції
+    }
   }
 
   @override

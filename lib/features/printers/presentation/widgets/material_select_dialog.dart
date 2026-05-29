@@ -16,7 +16,6 @@ class MaterialSelectDialog extends StatelessWidget {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 600;
 
-    // Головний вміст форми (заголовок + список + кнопки)
     Widget buildBody(BuildContext context) {
       return Padding(
         padding: EdgeInsets.only(
@@ -42,12 +41,12 @@ class MaterialSelectDialog extends StatelessWidget {
                 ),
               ),
             
-            // 1. ЗАГОЛОВОК З ЗАХИСТОМ ВІД OVERFLOW
-            Row(
+            // 1. ЗАГОЛОВОК
+            const Row(
               children: [
-                const Icon(Icons.inventory_2_outlined, color: Colors.blueGrey, size: 22),
-                const SizedBox(width: 10),
-                const Expanded(
+                Icon(Icons.inventory_2_outlined, color: Colors.blueGrey, size: 22),
+                SizedBox(width: 10),
+                Expanded(
                   child: Text(
                     'Вибір котушки для заправки',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
@@ -62,7 +61,7 @@ class MaterialSelectDialog extends StatelessWidget {
             // 2. ДИНАМІЧНИЙ СПИСОК КОТУШОК
             Flexible(
               child: SizedBox(
-                height: isMobile ? 400 : 500, // Гнучка висота під тип пристрою
+                height: isMobile ? 400 : 500,
                 child: customMaterials != null
                     ? _buildMaterialsList(context, customMaterials!)
                     : StreamBuilder<List<db.Material>>(
@@ -78,7 +77,7 @@ class MaterialSelectDialog extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // 3. КНОПКИ ДІЇ У НИЖНІЙ ЧАСТИНІ
+            // 3. КНОПКИ ДІЇ
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -99,7 +98,6 @@ class MaterialSelectDialog extends StatelessWidget {
       );
     }
 
-    // РЕНДЕР ЗАЛЕЖНО ВІД ЕКРАНА СМАРТФОНА/ПК
     if (isMobile) {
       return buildBody(context);
     }
@@ -114,7 +112,6 @@ class MaterialSelectDialog extends StatelessWidget {
     );
   }
 
-  // МЕТОД ПУЛУ КОТУШОК (Логіку збережено повністю, оптимізовано відступи)
   Widget _buildMaterialsList(BuildContext context, List<db.Material> materials) {
     if (materials.isEmpty) {
       return Center(
@@ -172,12 +169,15 @@ class MaterialSelectDialog extends StatelessWidget {
             final db.Material item = entry.value;
             final double currentWeight = item.initialWeight - item.usedWeight;
 
-            return Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.withAlpha(8),
+            // РЕЛИЗНИЙ ФІКС: Використовуємо Card з увімкненим clipBehavior замість сирого Container
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+              elevation: 0,
+              clipBehavior: Clip.antiAlias, 
+              color: Colors.blueGrey.withOpacity(0.04),
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
+                side: BorderSide(color: Colors.grey.shade200, width: 1),
               ),
               child: ListTile(
                 dense: true,

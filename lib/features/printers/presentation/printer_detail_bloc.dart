@@ -1,17 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:injectable/injectable.dart';
+import 'package:uuid/uuid.dart';
+import 'package:drift/drift.dart';
 import 'package:filamentary/core/database/database.dart' as db;
 import 'package:filamentary/core/network/printer_client_interface.dart'; 
 import 'package:filamentary/features/printers/data/printer_polling_service.dart'; 
 import 'package:filamentary/features/printers/domain/models/app_printer.dart'; 
-import 'package:drift/drift.dart';
-import 'package:injectable/injectable.dart';
-import 'package:uuid/uuid.dart';
-import 'dart:convert';
 
 // ==========================================
-// EVENTS
+// EVENTS (ПОДІЇ)
 // ==========================================
 abstract class PrinterDetailEvent extends Equatable {
   const PrinterDetailEvent();
@@ -72,8 +72,10 @@ class ChangeSlotMaterialEvent extends PrinterDetailEvent {
   List<Object?> get props => [printerId, slotIndex, materialId];
 }
 
+class ClearSnackBarMessageEvent extends PrinterDetailEvent {}
+
 // ==========================================
-// STATE
+// STATE (СТАН - ПОВЕРНУТО ТА ВИПРАВЛЕНО ЧЕРГОВІСТЬ)
 // ==========================================
 class PrinterDetailState extends Equatable {
   final bool isLoading;
@@ -81,6 +83,7 @@ class PrinterDetailState extends Equatable {
   final PrinterTelemetry telemetry; 
   final List<db.PrintJob> history;
   final List<db.Material> materials; 
+  final String? snackBarMessage; // Повідомлення про помилки сканування неіснуючих QR
 
   const PrinterDetailState({
     required this.isLoading,
@@ -88,6 +91,7 @@ class PrinterDetailState extends Equatable {
     required this.telemetry,
     required this.history,
     required this.materials, 
+    this.snackBarMessage,
   });
 
   factory PrinterDetailState.initial() {
@@ -97,6 +101,7 @@ class PrinterDetailState extends Equatable {
       telemetry: PrinterTelemetry.offline(), 
       history: [],
       materials: [], 
+      snackBarMessage: null,
     );
   }
 
@@ -106,6 +111,7 @@ class PrinterDetailState extends Equatable {
     PrinterTelemetry? telemetry,
     List<db.PrintJob>? history,
     List<db.Material>? materials, 
+    String? snackBarMessage, 
   }) {
     return PrinterDetailState(
       isLoading: isLoading ?? this.isLoading,
@@ -113,22 +119,25 @@ class PrinterDetailState extends Equatable {
       telemetry: telemetry ?? this.telemetry,
       history: history ?? this.history,
       materials: materials ?? this.materials, 
+      snackBarMessage: snackBarMessage,
     );
   }
 
   @override
-  List<Object?> get props => [isLoading, printer, telemetry, history, materials]; 
+  List<Object?> get props => [isLoading, printer, telemetry, history, materials, snackBarMessage]; 
 }
 
 // ==========================================
-// BLOC
+// BLOC IMPLEMENTATION
 // ==========================================
 @injectable
 class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
   final db.AppDatabase _db;
   final PrinterPollingService _pollingService; 
+  
   Timer? _pollingTimer;
   StreamSubscription<db.Printer?>? _printerSubscription; 
+  PrinterState? _lastCachedState;
 
   Future<void> _refreshHistory(Emitter<PrinterDetailState> emit) async {
     if (state.printer != null) {
@@ -147,10 +156,10 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
       _pollingTimer?.cancel();
       _pollingTimer = null;
       _printerSubscription?.cancel();
+      _lastCachedState = null;
 
       emit(state.copyWith(printer: event.printer));
 
-      // 1. РЕАКТИВНЕ ВІДСТЕЖЕННЯ З БАЗИ
       _printerSubscription = (_db.select(_db.printers)..where((tbl) => tbl.id.equals(event.printer.id)))
           .watchSingleOrNull()
           .listen((dbPrinter) {
@@ -183,7 +192,6 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
         }
       });
 
-      // 2. Завантаження історії та інвентарю матеріалів
       final historyList = await (_db.select(_db.printJobs)
             ..where((tbl) => tbl.printerId.equals(event.printer.id))
             ..orderBy([(tbl) => OrderingTerm.desc(tbl.startTime)]))
@@ -201,7 +209,6 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
         isLoading: false,
       ));
 
-      // 3. Петля фонового пулінгу мережі
       _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
         if (isClosed) {
           timer.cancel();
@@ -216,26 +223,44 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
             apiKey: event.printer.apiKey,
           );
           
-          if (!isClosed) {
-            add(UpdateTelemetry(telemetryData));
+          if (isClosed) return;
+
+          if (_lastCachedState == PrinterState.printing && telemetryData.state == PrinterState.standby) {
+            await _handleAutomaticKlipperPrintCompletion(telemetryData);
+            
+            final updatedHistory = await (_db.select(_db.printJobs)
+                  ..where((tbl) => tbl.printerId.equals(event.printer.id))
+                  ..orderBy([(tbl) => OrderingTerm.desc(tbl.startTime)]))
+                .get();
+            final updatedMaterials = await (_db.select(_db.materials)
+                  ..where((tbl) => tbl.isDeleted.equals(false)))
+                .get();
+                
+            emit(state.copyWith(history: updatedHistory, materials: updatedMaterials));
           }
+
+          _lastCachedState = telemetryData.state;
+          add(UpdateTelemetry(telemetryData));
+
         } catch (e) {
-          // 🛠️ ФІКС ТУТ: Перехоплюємо помилки сервісу опитування й примусово кидаємо
-          // об'єкт офлайну разом із текстом винятку, щоб запрацювала червона плашка!
           if (!isClosed) {
+            _lastCachedState = PrinterState.offline;
             String errorMsg = e.toString();
             
-            // Якщо це Bambu Lab, підказуємо конкретні причини
-            if (event.printer.manufacturer.toLowerCase().contains('bambu')) {
+            final isRealBambu = event.printer.manufacturer.toLowerCase().contains('bambu');
+            if (isRealBambu) {
               if (errorMsg.contains('Timeout')) {
                 errorMsg = 'Таймаут з\'єднання! Перевір Wi-Fi мережу або AP Isolation роутера.';
               } else if (errorMsg.contains('Password') || errorMsg.contains('auth')) {
                 errorMsg = 'Неправильний Access Code! Перевір f07ed541 на екрані принтера.';
               } else if (errorMsg.contains('Socket')) {
-                errorMsg = 'Помилка сокета Android. ПеревірusesCleartextTraffic у маніфесті.';
+                errorMsg = 'Помилка сокета Android. Перевір usesCleartextTraffic у маніфесті.';
+              }
+            } else {
+              if (errorMsg.contains('Connection refused') || errorMsg.contains('SocketException')) {
+                errorMsg = 'Не вдалося підключитися до Moonraker API. Перевірте IP-адресу та порт пристрою.';
               }
             }
-            
             add(UpdateTelemetry(PrinterTelemetry.offline(errorMsg)));
           }
         }
@@ -250,18 +275,27 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
             final List<dynamic> logs = jsonDecode(job.usedMaterialsLogJson);
             for (var log in logs) {
               final String matId = log['materialId'];
-              final double spent = log['spentWeight'];
+              final double spent = (log['spentWeight'] as num).toDouble();
 
-              await _db.customUpdate(
-                'UPDATE materials SET used_weight = used_weight - ? WHERE id = ?',
-                variables: [Variable<double>(spent), Variable<String>(matId)],
-                updates: {_db.materials},
+              final existingMat = await (_db.select(_db.materials)..where((tbl) => tbl.id.equals(matId))).getSingleOrNull();
+              if (existingMat == null) continue; 
+
+              final double targetUsedWeight = existingMat.usedWeight - spent;
+
+              await (_db.update(_db.materials)..where((tbl) => tbl.id.equals(matId))).write(
+                db.MaterialsCompanion(
+                  usedWeight: Value(targetUsedWeight < 0 ? 0.0 : targetUsedWeight),
+                  version: Value(existingMat.version + 1),
+                  timestamp: Value(DateTime.now()),
+                ),
               );
             }
           }
           await (_db.delete(_db.printJobs)..where((tbl) => tbl.id.equals(job.id))).go();
         });
         await _refreshHistory(emit);
+        final allMaterialsList = await (_db.select(_db.materials)..where((tbl) => tbl.isDeleted.equals(false))).get();
+        emit(state.copyWith(materials: allMaterialsList, snackBarMessage: null));
       } catch (_) {}
     });
 
@@ -275,12 +309,17 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
           for (var log in oldLogs) {
             final String matId = log['materialId'] ?? '';
             final double weight = (log['spentWeight'] as num?)?.toDouble() ?? 0.0;
-            if (matId.isEmpty) continue;
+            if (matId.isEmpty || weight <= 0) continue;
 
-            await _db.customUpdate(
-              'UPDATE materials SET used_weight = used_weight - ? WHERE id = ?',
-              variables: [Variable<double>(weight), Variable<String>(matId)],
-              updates: {_db.materials},
+            final existingMat = await (_db.select(_db.materials)..where((tbl) => tbl.id.equals(matId))).getSingleOrNull();
+            if (existingMat == null) continue;
+
+            await (_db.update(_db.materials)..where((tbl) => tbl.id.equals(matId))).write(
+              db.MaterialsCompanion(
+                usedWeight: Value((existingMat.usedWeight - weight) < 0 ? 0.0 : existingMat.usedWeight - weight),
+                version: Value(existingMat.version + 1),
+                timestamp: Value(DateTime.now()),
+              ),
             );
           }
 
@@ -288,12 +327,17 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
           for (var log in newLogs) {
             final String matId = log['materialId'] ?? '';
             final double weight = (log['spentWeight'] as num?)?.toDouble() ?? 0.0;
-            if (matId.isEmpty) continue;
+            if (matId.isEmpty || weight <= 0) continue;
 
-            await _db.customUpdate(
-              'UPDATE materials SET used_weight = used_weight + ? WHERE id = ?',
-              variables: [Variable<double>(weight), Variable<String>(matId)],
-              updates: {_db.materials},
+            final existingMat = await (_db.select(_db.materials)..where((tbl) => tbl.id.equals(matId))).getSingleOrNull();
+            if (existingMat == null) continue;
+
+            await (_db.update(_db.materials)..where((tbl) => tbl.id.equals(matId))).write(
+              db.MaterialsCompanion(
+                usedWeight: Value(existingMat.usedWeight + weight),
+                version: Value(existingMat.version + 1),
+                timestamp: Value(DateTime.now()),
+              ),
             );
           }
 
@@ -305,66 +349,132 @@ class PrinterDetailBloc extends Bloc<PrinterDetailEvent, PrinterDetailState> {
               duration: Value(newData['duration']),
               spentWeight: Value(newData['spentWeight']),
               usedMaterialsLogJson: Value(newData['usedMaterialsLogJson']),
+              version: Value(oldJob.version + 1),
+              timestamp: Value(DateTime.now()),
             ),
           );
         });
+        
         await _refreshHistory(emit);
+        final allMaterialsList = await (_db.select(_db.materials)..where((tbl) => tbl.isDeleted.equals(false))).get();
+        emit(state.copyWith(materials: allMaterialsList, snackBarMessage: null));
       } catch (_) {}
     });
 
     on<UpdatePrinterObjectEvent>((event, emit) {
-      if (!isClosed) emit(state.copyWith(printer: event.printer));
+      if (!isClosed) emit(state.copyWith(printer: event.printer, snackBarMessage: null));
     });
 
     on<UpdateTelemetry>((event, emit) {
       if (!isClosed) emit(state.copyWith(telemetry: event.telemetry));
     });
 
+    // ==========================================================
+    // ЗМІНА КОТУШКИ В СЛОТІ ЧЕРЕЗ QR КОД (ФІНАЛЬНЕ УЗГОДЖЕННЯ З БАЗОЮ)
+    // ==========================================================
     on<ChangeSlotMaterialEvent>((event, emit) async {
+      if (state.printer == null) return;
+      
+      // Очищуємо старі SnackBar повідомлення перед виконанням операції
+      emit(state.copyWith(snackBarMessage: null));
+      
       try {
         final String transactionId = const Uuid().v4();
+        
+        if (event.materialId != null) {
+          // Валідація наявності: перевіряємо чи існує котушка у нашому інвентарі
+          final bool materialExists = state.materials.any((m) => m.id == event.materialId);
+          if (!materialExists) {
+            emit(state.copyWith(snackBarMessage: 'Котушки з відсканованим ID не існує в інвентарі!'));
+            return;
+          }
+        }
+
         await _db.connectMaterialToSlot(
           event.printerId,
-          event.slotIndex,
+          event.slotIndex, 
           event.materialId,
           transactionId,
         );
-      } catch (_) {}
+      } catch (e) {
+        emit(state.copyWith(snackBarMessage: 'Помилка бази даних: ${e.toString()}'));
+      }
     });
 
     on<AddManualPrintJobEvent>((event, emit) async {
       final data = event.printData;
       try {
-        await _db.transaction(() async {
-          await _db.into(_db.printJobs).insert(
-            db.PrintJobsCompanion.insert(
-              id: data['id'],
-              printerId: data['printerId'],
-              modelName: data['modelName'],
-              status: data['status'],
-              spentWeight: data['spentWeight'],
-              usedMaterialsLogJson: data['usedMaterialsLogJson'],
-              startTime: data['startTime'],
-              duration: data['duration'],
-            ),
-          );
-
-          final List<dynamic> logs = jsonDecode(data['usedMaterialsLogJson']);
-          for (var log in logs) {
-            final String matId = log['materialId'];
-            final double spent = log['spentWeight'];
-            
-            await _db.customUpdate(
-              'UPDATE materials SET used_weight = used_weight + ? WHERE id = ?',
-              variables: [Variable<double>(spent), Variable<String>(matId)],
-              updates: {_db.materials},
-            );
-          }
-        });
+        final String transactionId = const Uuid().v4();
+        
+        await _db.registerPrintJobInDatabase(
+          id: data['id'],
+          printerId: data['printerId'],
+          modelName: data['modelName'],
+          status: data['status'],
+          spentWeight: data['spentWeight'],
+          usedMaterialsLogJson: data['usedMaterialsLogJson'],
+          startTime: data['startTime'],
+          duration: data['duration'],
+          transactionId: transactionId,
+        );
 
         await _refreshHistory(emit);
+        final allMaterialsList = await (_db.select(_db.materials)..where((tbl) => tbl.isDeleted.equals(false))).get();
+        emit(state.copyWith(materials: allMaterialsList, snackBarMessage: null));
       } catch (_) {}
     });
+
+    on<ClearSnackBarMessageEvent>((event, emit) {
+      emit(state.copyWith(snackBarMessage: null));
+    });
+  }
+
+  Future<void> _handleAutomaticKlipperPrintCompletion(PrinterTelemetry telemetry) async {
+    if (state.printer == null) return;
+
+    try {
+      final currentPrinter = state.printer!;
+      String? activeMaterialId;
+      
+      for (var slot in currentPrinter.slots) {
+        if (slot.linkedMaterialId != null && slot.linkedMaterialId!.isNotEmpty) {
+          final bool materialExists = state.materials.any((m) => m.id == slot.linkedMaterialId);
+          if (materialExists) {
+            activeMaterialId = slot.linkedMaterialId;
+            break; 
+          }
+        }
+      }
+
+      if (activeMaterialId == null) return;
+      final String safeMaterialId = activeMaterialId;
+
+      final double totalSpentWeight = telemetry.filamentWeightTotal > 0 ? telemetry.filamentWeightTotal : 0.0;
+      if (totalSpentWeight <= 0) return;
+
+      final String printJobId = const Uuid().v4();
+      final String transactionId = const Uuid().v4();
+      
+      final List<Map<String, dynamic>> generatedMaterialsLog = [
+        {
+          'slotIndex': 1,
+          'materialId': safeMaterialId,
+          'spentWeight': totalSpentWeight,
+        }
+      ];
+
+      await _db.registerPrintJobInDatabase(
+        id: printJobId,
+        printerId: currentPrinter.id,
+        modelName: telemetry.filename.isNotEmpty ? telemetry.filename : 'Klipper_Auto_Print.gcode',
+        status: 'Успішно',
+        spentWeight: totalSpentWeight,
+        usedMaterialsLogJson: jsonEncode(generatedMaterialsLog),
+        startTime: DateTime.now().subtract(Duration(seconds: telemetry.totalPrintTime > 0 ? telemetry.totalPrintTime : 60)),
+        duration: telemetry.totalPrintTime > 0 ? telemetry.totalPrintTime : 60,
+        transactionId: transactionId,
+      );
+    } catch (_) {}
   }
 
   @override
