@@ -27,8 +27,6 @@ class BambuClient implements PrinterClient {
     client.keepAlivePeriod = 10;
     client.setProtocolV311();
     
-    // КРИТИЧНИЙ ФІКС: Очікується тип Object відповідно до тексту помилки
-    // 'type (X509Certificate) => bool' is not a subtype of type '((Object) => bool)?'
     client.onBadCertificate = (Object cert) => true; 
 
     // Формуємо Connection Message. Логін у Bambu ЗАВЖДИ 'bblp', пароль — Access Code (apiKey)

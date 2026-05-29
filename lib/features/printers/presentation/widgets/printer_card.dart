@@ -122,7 +122,7 @@ class PrinterCard extends StatelessWidget {
                               ? Image.network(
                                   printer.imageUrl!, 
                                   fit: BoxFit.contain, 
-                                  errorBuilder: (_, __, ___) => const Icon(
+                                  errorBuilder: (_, _, _) => const Icon(
                                     Icons.print_outlined, 
                                     color: Colors.blueGrey, 
                                     size: 40,

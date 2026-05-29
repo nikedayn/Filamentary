@@ -195,7 +195,7 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _status,
+                      initialValue: _status,
                       decoration: const InputDecoration(labelText: 'Статус', isDense: true, border: OutlineInputBorder()),
                       items: ['Успішно', 'Скасовано', 'Збій'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
                       onChanged: (val) => setState(() => _status = val!),
@@ -223,7 +223,7 @@ class _ManualPrintDialogState extends State<ManualPrintDialog> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _status,
+                            initialValue: _status,
                             decoration: const InputDecoration(labelText: 'Статус', isDense: true, border: OutlineInputBorder()),
                             items: ['Успішно', 'Скасовано', 'Збій'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
                             onChanged: (val) => setState(() => _status = val!),

@@ -37,7 +37,7 @@ class PrintersScreen extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(Icons.print_disabled_outlined, size: 64, color: Colors.grey),
-                            const SizedBox(height: 16),
+                            SizedBox(height: 16),
                             Text('Жодного принтера не додано', style: TextStyle(color: Colors.grey, fontSize: 16)),
                           ],
                         ),

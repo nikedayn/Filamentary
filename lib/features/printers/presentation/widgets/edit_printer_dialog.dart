@@ -201,7 +201,7 @@ class _EditPrinterDialogState extends State<EditPrinterDialog> {
             const SizedBox(height: 10),
             
             DropdownButtonFormField<String>(
-              value: _selectedBrand, 
+              initialValue: _selectedBrand, 
               decoration: const InputDecoration(labelText: 'Виробник', isDense: true, border: OutlineInputBorder()),
               items: availableBrands.map((b) => DropdownMenuItem(value: b, child: Text(b, style: const TextStyle(fontSize: 14)))).toList(),
               onChanged: _onBrandChanged,
@@ -218,7 +218,7 @@ class _EditPrinterDialogState extends State<EditPrinterDialog> {
             
             DropdownButtonFormField<String>(
               key: ValueKey(_selectedBrand),
-              value: _selectedModel, 
+              initialValue: _selectedModel, 
               decoration: const InputDecoration(labelText: 'Модель принтера', isDense: true, border: OutlineInputBorder()),
               items: availableModels.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 14)))).toList(),
               onChanged: _onModelChanged,
